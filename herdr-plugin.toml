@@ -1,0 +1,37 @@
+id = "asumaran.asmeta"
+name = "asmeta"
+version = "0.1.0"
+min_herdr_version = "0.9.0"
+description = "Report the Jira ticket, its parent ticket and the GitHub PR of each workspace branch as Space sidebar tokens ($ticket, $parent, $pr) and sort each repo's worktrees by parent, ticket, PR"
+platforms = ["linux", "macos"]
+
+# Refresh every workspace when the server starts (tokens do not survive a restart).
+[[startup]]
+command = ["./asmeta.sh", "--all"]
+
+# Worktrees opened from the sidebar or from `wt` get their tokens right away.
+[[events]]
+on = "workspace.created"
+command = ["./asmeta.sh"]
+
+[[events]]
+on = "worktree.opened"
+command = ["./asmeta.sh"]
+
+# A PR usually appears after the worktree was opened: refresh on focus, throttled
+# inside the script so switching workspaces does not hammer gh / Jira.
+[[events]]
+on = "workspace.focused"
+command = ["./asmeta.sh"]
+
+[[actions]]
+id = "refresh"
+title = "Refresh ticket / PR tokens (this workspace)"
+contexts = ["workspace"]
+command = ["./asmeta.sh", "--force"]
+
+[[actions]]
+id = "refresh-all"
+title = "Refresh ticket / PR tokens (all workspaces)"
+contexts = ["global"]
+command = ["./asmeta.sh", "--all", "--force"]
