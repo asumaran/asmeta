@@ -1,0 +1,10 @@
+# Compiled binary (built locally or in CI; attached to GitHub Releases as an asset).
+/asmeta
+asmeta-darwin-*
+asmeta-linux-*
+
+# Release staging
+/dist/
+
+# macOS
+.DS_Store

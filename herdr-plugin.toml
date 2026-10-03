@@ -5,44 +5,50 @@ min_herdr_version = "0.9.0"
 description = "Report what each workspace is about as Space sidebar tokens: $title (#PR plus an AI descriptor, Claude Haiku, with PR title / Jira summary / label fallbacks), $desc, $ticket, $parent, $pr, $pr_state and $ref; sort each repo's worktrees by parent, ticket, PR"
 platforms = ["linux", "macos"]
 
+# Hybrid provisioning: download the prebuilt binary from the GitHub release
+# matching `version` above; fall back to `go build` when there is no asset for
+# this platform (then a Go toolchain is required).
+[[build]]
+command = ["scripts/fetch-binary.sh"]
+
 # Refresh every workspace when the server starts (tokens do not survive a restart).
 [[startup]]
-command = ["./asmeta.sh", "--all"]
+command = ["./asmeta", "--all"]
 
 # Worktrees opened from the sidebar or from `wt` get their tokens right away.
 [[events]]
 on = "workspace.created"
-command = ["./asmeta.sh"]
+command = ["./asmeta"]
 
 [[events]]
 on = "worktree.opened"
-command = ["./asmeta.sh"]
+command = ["./asmeta"]
 
 # A PR usually appears after the worktree was opened: refresh on focus, throttled
 # inside the script so switching workspaces does not hammer gh / Jira.
 [[events]]
 on = "workspace.focused"
-command = ["./asmeta.sh"]
+command = ["./asmeta"]
 
 # A renamed space without a descriptor shows its label: refresh it.
 [[events]]
 on = "workspace.renamed"
-command = ["./asmeta.sh"]
+command = ["./asmeta"]
 
 [[actions]]
 id = "refresh"
 title = "Refresh sidebar tokens (this workspace)"
 contexts = ["workspace"]
-command = ["./asmeta.sh", "--force"]
+command = ["./asmeta", "--force"]
 
 [[actions]]
 id = "refresh-all"
 title = "Refresh sidebar tokens (all workspaces)"
 contexts = ["global"]
-command = ["./asmeta.sh", "--all", "--force"]
+command = ["./asmeta", "--all", "--force"]
 
 [[actions]]
 id = "regen"
 title = "Regenerate descriptor (this workspace)"
 contexts = ["workspace"]
-command = ["./asmeta.sh", "--regen"]
+command = ["./asmeta", "--regen"]

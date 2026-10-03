@@ -1,0 +1,13 @@
+{"result":{"workspaces":[
+ {"workspace_id":"m1","label":"front","worktree":{"repo_key":"/r/front/.git","is_linked_worktree":false},"tokens":{}},
+ {"workspace_id":"a","label":"zz","worktree":{"repo_key":"/r/front/.git","is_linked_worktree":true},"tokens":{"ticket":"ESHOP-20","pr":"#9 draft"}},
+ {"workspace_id":"b","label":"yy","worktree":{"repo_key":"/r/front/.git","is_linked_worktree":true},"tokens":{"ticket":"ESHOP-3","parent":"↳ ESHOP-20"}},
+ {"workspace_id":"c","label":"xx","worktree":{"repo_key":"/r/front/.git","is_linked_worktree":true}},
+ {"workspace_id":"d","label":"ww","worktree":{"repo_key":"/r/front/.git","is_linked_worktree":true},"tokens":{"ticket":"ABC-100","pr":"#12"}},
+ {"workspace_id":"other","label":"scratch","worktree":null,"tokens":{}},
+ {"workspace_id":"m2","label":"back","worktree":{"repo_key":"/r/back/.git","is_linked_worktree":false},"tokens":{}},
+ {"workspace_id":"e","label":"b2","worktree":{"repo_key":"/r/back/.git","is_linked_worktree":true},"tokens":{"ticket":"PLAT-2"}},
+ {"workspace_id":"f","label":"b1","worktree":{"repo_key":"/r/back/.git","is_linked_worktree":true},"tokens":{"ticket":"PLAT-10"}},
+ {"workspace_id":"g","label":"lone","worktree":{"repo_key":"/r/lone/.git","is_linked_worktree":true},"tokens":{"ticket":"X-1"}},
+ {"workspace_id":"h","label":"lone2","worktree":{"repo_key":"/r/lone/.git","is_linked_worktree":true},"tokens":{}}
+]}}
