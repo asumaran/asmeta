@@ -1,0 +1,52 @@
+# asmeta
+
+A herdr plugin with no pane: it fills the Space sidebar with what each
+workspace is about. Each space gets two rows: `#PR descriptor` on top, then
+the parent ticket, the ticket, the PR state and the branch. Inside each repo,
+linked worktrees are sorted by parent ticket, ticket and PR number, so the
+subtasks of one parent end up next to each other.
+
+The descriptor is a 3 to 5 word summary, written once per PR or ticket by
+`claude -p` (Haiku) and cached. Until it exists, or without `claude`, the row
+shows the PR title, then the Jira summary, then the workspace label.
+
+## Install
+
+Requires herdr >= 0.9.0 on macOS or Linux, plus `gh`, `jq` and `perl`. `yq`
+and `claude` are optional (Jira and the AI descriptor).
+
+```bash
+herdr plugin install asumaran/asmeta
+```
+
+The plugin runs by itself: when the server starts, when a workspace is created,
+opened or renamed, and on focus (at most once every two minutes per
+workspace). It also adds three actions: refresh this workspace, refresh all,
+and regenerate the descriptor.
+
+To show the tokens, reference them in the sidebar rows of
+`~/.config/herdr/config.toml`: `$title`, `$desc`, `$ticket`, `$parent`, `$pr`,
+`$pr_state` and `$ref`.
+
+## Jira
+
+Parent tickets and summaries come from Jira, using the stacks in
+`~/.claude/asdev.local.md` (YAML front matter, `stacks.<name>.jira` with
+`base_url`, `email`, `api_token_env` and an optional `default_project`). The
+API token is read from the environment variable named there. Without that
+file, Jira is skipped.
+
+## Settings
+
+Environment variables, all optional:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `ASMETA_FOCUS_THROTTLE_SECONDS` | `120` | minimum time between focus refreshes of one workspace |
+| `ASMETA_SUMMARY_TTL_SECONDS` | `21600` | how long a cached Jira summary is kept |
+| `ASMETA_REGROUP` | `1` | `0` leaves the worktree order alone |
+| `ASMETA_CLAUDE_BIN` | `claude` on `PATH` | the CLI used for descriptors |
+
+## License
+
+MIT
