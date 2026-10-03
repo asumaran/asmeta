@@ -24,6 +24,16 @@ cache keys and prompt), checked by running both against the same session.
   `-version`), `collect` (what a workspace is: checkout, branch, ticket, PR via
   `gh pr view`, Jira), `describe`, `publish` (`workspace report-metadata`),
   `workspaceFromEnv`, `loadSecrets`.
+- `prfetch.go`: the writer of the shared PR cache (`prs.json`, format and
+  merge in the shared `prshare.go`): `collectPairs` (origin, upstream for a
+  fork, branch of every workspace), `prQuery` (one aliased GraphQL query,
+  values as variables, up to 100 branches), `fetchPRs` (partial answers per
+  repo, the newest open PR of our head), `refreshPRs` (flock on `prs.lock`, a
+  request covered by a later query does not query again, backoff after a rate
+  limit, returns the workspaces whose PR changed so they are published
+  again). Triggers: startup, created, opened and renamed always query; focus
+  only when a branch is missing or older than the focus throttle; `--force`
+  and `--prs` (the `refresh-prs` action asgoto invokes) always.
 - `jira.go`: one ticket's parent, summary and description, cached as plain
   text in `parents/`, `summaries/`, `descriptions/` of the state dir.
 - `ai.go`: the descriptor: `planAI` (cache key and prompt), `cleanDescriptor`,
@@ -34,7 +44,9 @@ cache keys and prompt), checked by running both against the same session.
 - `ordjson.go`: JSON walked in document order, as jq's `..` does (Jira's
   document format, hook event payloads).
 - Shared with the family, byte-identical (checked by `check-shared.sh`):
-  `statedir.go`, `herdrbin.go`, `herdrcli.go`, `jsonfile.go`,
+  `statedir.go`, `herdrbin.go`, `herdrcli.go`, `jsonfile.go`, `gitremote.go`,
+  `prshare.go` (the shared PR cache; asmeta is its only writer, asgoto,
+  asgotoissues and asgotopr read it),
   `asdevconfig.go` (the asdev config and Jira credentials, shared with
   asgotoissues), `scripts/release.sh`, `.github/workflows/release.yml`. Change
   them in one repo and port the change to every copy.
@@ -47,7 +59,7 @@ All in the state dir (`HERDR_PLUGIN_STATE_DIR`, or the same directory worked
 out by `statedir.go` when run by hand): `ai/<key>` (descriptor),
 `ai/<key>.fail` (cooldown marker), `parents/`, `summaries/`, `descriptions/`
 (Jira, per ticket), `queue/<workspace id>`, `last/<workspace id>` (focus
-throttle), `ai.flock`. The layout is the bash plugin's; do not rename files
+throttle), `ai.flock`, `prs.json` and `prs.lock` (the shared PR cache). The layout is the bash plugin's; do not rename files
 without a migration, or every descriptor is generated again.
 
 ## Behaviour that is not obvious
@@ -56,8 +68,7 @@ without a migration, or every descriptor is generated again.
   PR, else the ticket, else the branch with commits). Bump `promptVersion`
   when the prompt changes. With `ASMETA_LANG` unset the prompt and the key are
   the bash plugin's; another language adds `lang=` to the basis.
-- PR state: a draft PR reads `draft` whatever its state (the bash plugin's
-  rule, kept for parity).
+- PR state comes normalized from `prs.json`: `draft` only while open.
 - Branches `main`, `master`, `develop` and a detached head never look a PR up.
 - Focus events are throttled per workspace (`last/`); focus and rename never
   regroup.

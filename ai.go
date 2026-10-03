@@ -268,12 +268,27 @@ func drainQueue() {
 			w := collect(list, id)
 			p := planAI(w)
 			if p.key != "" && !aiCached(p.key) && !aiCooling(p.key) {
-				// The branch may have changed while the model answered: start
-				// over with what the checkout is now instead of publishing the
-				// old one.
-				if generate(w, p) && gitOut(w.path, "branch", "--show-current") != w.branch {
-					enqueue(id)
-					continue
+				if generate(w, p) {
+					// The branch may have changed while the model answered:
+					// start over with what the checkout is now instead of
+					// publishing the old one. The PR may have changed too (a
+					// refresh ran meanwhile): publish what the cache says now,
+					// and queue the descriptor its new key needs.
+					if fresh, err := workspaceList(); err == nil {
+						list = fresh
+					}
+					now := collect(list, id)
+					if now.branch != w.branch {
+						enqueue(id)
+						continue
+					}
+					w = now
+					if q := planAI(w); q.key != p.key {
+						if q.key != "" && !aiCached(q.key) && !aiCooling(q.key) {
+							enqueue(id)
+						}
+						p = q
+					}
 				}
 			}
 			// Published even without a new descriptor: the workspace was

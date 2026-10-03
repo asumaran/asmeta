@@ -5,6 +5,7 @@
 //	asmeta --all           every workspace
 //	--force                ignore the focus throttle
 //	--regen                drop the cached AI descriptor and generate it again
+//	--prs                  refresh the shared PR cache now and publish what changed
 //
 // Tokens: $title (row 1: "#PR descriptor" on a linked worktree, the workspace
 // label elsewhere), $desc (the descriptor alone, what asgoto searches),
@@ -12,7 +13,9 @@
 // merged or closed) and $ref (the branch, on the main checkout and on
 // worktrees without a ticket, so row 2 always says something).
 //
-// Sources: branch name (ticket key), `gh pr view` (PR), Jira REST (parent,
+// Sources: branch name (ticket key), the shared PR cache (prs.json, which this
+// plugin writes with one GitHub query for every workspace: prfetch.go,
+// prshare.go), Jira REST (parent,
 // summary, description; stacks from ~/.claude/asdev.local.md, the same file
 // asdev / asgotoissues read) and `claude -p` (Haiku) for the descriptor.
 //
@@ -30,7 +33,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -181,9 +183,32 @@ type workspace struct {
 	jiraDesc        string
 }
 
-// collect works out one workspace of a `workspace list`. Everything runs
-// against the checkout with git -C: hooks start in the plugin's directory.
+// collect works out one workspace of a `workspace list`: its checkout and
+// branch (locate), its PR from the shared cache, its ticket from Jira.
 func collect(list wsList, id string) *workspace {
+	w := locate(list, id)
+	if w.path == "" {
+		return w
+	}
+	if pair, ok := pairOf(w); ok {
+		readPR(w, loadSharedPRs(), pair)
+	}
+	if w.ticket != "" {
+		parent, kind := jiraParent(w.ticket)
+		// An epic is a container, not a sibling group: only real parents are shown.
+		if kind != "Epic" {
+			w.parent = parent
+		}
+		jiraTextFresh(w.ticket)
+		w.jiraSummary = readText(filepath.Join(stateDir, "summaries", w.ticket))
+		w.jiraDesc = readText(filepath.Join(stateDir, "descriptions", w.ticket))
+	}
+	return w
+}
+
+// locate finds a workspace's checkout, branch and ticket. Everything runs
+// against the checkout with git -C: hooks start in the plugin's directory.
+func locate(list wsList, id string) *workspace {
 	w := &workspace{id: id}
 	var row *wsEntry
 	for i := range list.Result.Workspaces {
@@ -219,21 +244,6 @@ func collect(list wsList, id string) *workspace {
 
 	w.branch = gitOut(w.path, "branch", "--show-current")
 	w.ticket = ticketRe.FindString(w.branch)
-	switch w.branch {
-	case "", "main", "master", "develop": // a PR with that head is someone else's release train
-	default:
-		readPR(w)
-	}
-	if w.ticket != "" {
-		parent, kind := jiraParent(w.ticket)
-		// An epic is a container, not a sibling group: only real parents are shown.
-		if kind != "Epic" {
-			w.parent = parent
-		}
-		jiraTextFresh(w.ticket)
-		w.jiraSummary = readText(filepath.Join(stateDir, "summaries", w.ticket))
-		w.jiraDesc = readText(filepath.Join(stateDir, "descriptions", w.ticket))
-	}
 	return w
 }
 
@@ -252,43 +262,19 @@ func commonDir(top string) string {
 	return ""
 }
 
-// readPR fills the PR fields with `gh pr view` run in the checkout.
-func readPR(w *workspace) {
-	cmd := exec.Command("gh", "pr", "view", "--json", "number,state,isDraft,title,body,baseRefName")
-	cmd.Dir = w.path
-	out, err := cmd.Output()
-	if err != nil || len(bytes.TrimSpace(out)) == 0 {
+// readPR fills the PR fields from the shared cache (prfetch.go writes it).
+func readPR(w *workspace, prs sharedPRs, pair prPair) {
+	pr, _, _ := prs.branch(pair.head, pair.branch)
+	if pr == nil {
 		return
 	}
-	var pr struct {
-		Number      json.Number `json:"number"`
-		State       string      `json:"state"`
-		IsDraft     bool        `json:"isDraft"`
-		Title       *string     `json:"title"`
-		Body        *string     `json:"body"`
-		BaseRefName *string     `json:"baseRefName"`
+	w.prNum = strconv.Itoa(pr.Number)
+	if pr.State != "open" {
+		w.prState = pr.State
 	}
-	if json.Unmarshal(out, &pr) != nil {
-		return
-	}
-	w.prNum = pr.Number.String()
-	switch {
-	case pr.IsDraft:
-		w.prState = "draft"
-	case pr.State == "MERGED":
-		w.prState = "merged"
-	case pr.State == "CLOSED":
-		w.prState = "closed"
-	}
-	if pr.BaseRefName != nil {
-		w.prBase = chomp(*pr.BaseRefName)
-	}
-	if pr.Title != nil {
-		w.prTitle = chomp(*pr.Title)
-	}
-	if pr.Body != nil {
-		w.prBody = chomp(cutRunes(*pr.Body, 1500))
-	}
+	w.prBase = chomp(pr.Base)
+	w.prTitle = chomp(pr.Title)
+	w.prBody = chomp(cutRunes(pr.Body, 1500))
 	w.prLabel = "#" + w.prNum
 	if w.prState != "" {
 		w.prLabel += " " + w.prState
@@ -433,7 +419,7 @@ func main() {
 }
 
 func run(argv []string) int {
-	all, force, regen := false, false, false
+	all, force, regen, prsOnly := false, false, false, false
 	var ids []string
 	for _, arg := range argv {
 		switch {
@@ -443,6 +429,8 @@ func run(argv []string) int {
 			force = true
 		case arg == "--regen":
 			regen = true
+		case arg == "--prs":
+			prsOnly = true
 		case arg == "-version" || arg == "--version":
 			fmt.Println(version)
 			return 0
@@ -477,11 +465,24 @@ func run(argv []string) int {
 		logf("herdr workspace list failed")
 		return 1
 	}
-	if all {
+	// The PR cache first: one query for every workspace, and every workspace
+	// whose PR changed is published again, not only the one this run is for.
+	mode := refreshAlways
+	switch {
+	case force || prsOnly:
+		mode = refreshForced
+	case event == "workspace.focused":
+		mode = refreshIfStale
+	}
+	changed := refreshPRs(list, mode)
+
+	switch {
+	case prsOnly:
+	case all:
 		for _, w := range list.Result.Workspaces {
 			ids = append(ids, w.ID)
 		}
-	} else if len(ids) == 0 {
+	case len(ids) == 0:
 		id := workspaceFromEnv()
 		if id == "" {
 			logf("no workspace id (pass one or run from a herdr hook)")
@@ -490,9 +491,13 @@ func run(argv []string) int {
 		ids = []string{id}
 		if event == "workspace.focused" && !force {
 			if age, ok := fileAge(filepath.Join(stateDir, "last", id)); ok && age < focusThrottle {
-				return 0
+				ids = nil
 			}
 		}
+	}
+	ids = uniq(append(ids, changed...))
+	if len(ids) == 0 {
+		return 0
 	}
 
 	for _, id := range ids {
@@ -514,4 +519,17 @@ func run(argv []string) int {
 	}
 	drainQueue()
 	return 0
+}
+
+// uniq keeps the first of each id, in order.
+func uniq(ids []string) []string {
+	seen := map[string]bool{}
+	out := ids[:0]
+	for _, id := range ids {
+		if !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	return out
 }

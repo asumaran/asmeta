@@ -25,8 +25,14 @@ Go. `ASMETA_BUILD_FROM_SOURCE=1` always builds from source.
 
 The plugin runs by itself: when the server starts, when a workspace is created,
 opened or renamed, and on focus (at most once every two minutes per
-workspace). It also adds three actions: refresh this workspace, refresh all,
-and regenerate the descriptor.
+workspace). It also adds four actions: refresh this workspace, refresh all,
+refresh pull requests, and regenerate the descriptor.
+
+PRs are looked up for every workspace at once, in one GitHub query per
+refresh, and kept in `prs.json` in the plugin's state directory. asgoto,
+asgotoissues and asgotopr read that file, so the sidebar and the pickers show
+the same PRs in the same state. A checkout whose `origin` is a fork finds its
+PRs in the `upstream` remote.
 
 To show the tokens, reference them in the sidebar rows of
 `~/.config/herdr/config.toml`: `$title`, `$desc`, `$ticket`, `$parent`, `$pr`,

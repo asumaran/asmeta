@@ -52,3 +52,12 @@ id = "regen"
 title = "Regenerate descriptor (this workspace)"
 contexts = ["workspace"]
 command = ["./asmeta", "--regen"]
+
+# Refresh the shared PR cache (prs.json) now, for every workspace, and publish
+# the workspaces whose PR changed. asgoto invokes it when the cache it reads
+# is stale.
+[[actions]]
+id = "refresh-prs"
+title = "Refresh pull requests (all workspaces)"
+contexts = ["global"]
+command = ["./asmeta", "--prs"]
