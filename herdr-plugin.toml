@@ -2,7 +2,7 @@ id = "asumaran.asmeta"
 name = "asmeta"
 version = "0.1.0"
 min_herdr_version = "0.9.0"
-description = "Report the Jira ticket, its parent ticket and the GitHub PR of each workspace branch as Space sidebar tokens ($ticket, $parent, $pr) and sort each repo's worktrees by parent, ticket, PR"
+description = "Report what each workspace is about as Space sidebar tokens: $title (#PR plus an AI descriptor, Claude Haiku, with PR title / Jira summary / label fallbacks), $desc, $ticket, $parent, $pr, $pr_state and $ref; sort each repo's worktrees by parent, ticket, PR"
 platforms = ["linux", "macos"]
 
 # Refresh every workspace when the server starts (tokens do not survive a restart).
@@ -24,14 +24,25 @@ command = ["./asmeta.sh"]
 on = "workspace.focused"
 command = ["./asmeta.sh"]
 
+# A renamed space without a descriptor shows its label: refresh it.
+[[events]]
+on = "workspace.renamed"
+command = ["./asmeta.sh"]
+
 [[actions]]
 id = "refresh"
-title = "Refresh ticket / PR tokens (this workspace)"
+title = "Refresh sidebar tokens (this workspace)"
 contexts = ["workspace"]
 command = ["./asmeta.sh", "--force"]
 
 [[actions]]
 id = "refresh-all"
-title = "Refresh ticket / PR tokens (all workspaces)"
+title = "Refresh sidebar tokens (all workspaces)"
 contexts = ["global"]
 command = ["./asmeta.sh", "--all", "--force"]
+
+[[actions]]
+id = "regen"
+title = "Regenerate descriptor (this workspace)"
+contexts = ["workspace"]
+command = ["./asmeta.sh", "--regen"]
