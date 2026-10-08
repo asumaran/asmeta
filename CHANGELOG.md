@@ -1,3 +1,7 @@
+## v0.2.0 (2026-10-08)
+
+* perf: replay last published tokens at startup (c360370)
+
 ## v0.1.0 (2026-10-03)
 
 * feat: write the shared pr cache with one query per refresh (7f45d2b)
