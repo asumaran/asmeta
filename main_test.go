@@ -68,6 +68,52 @@ func TestPlanAIKeyAndPrompt(t *testing.T) {
 	}
 }
 
+func TestTokensForAndReportArgs(t *testing.T) {
+	stateDir = t.TempDir()
+	w := &workspace{id: "w1", label: "eshop-2562", path: "/x", linked: true, branch: "feat/ESHOP-2562",
+		ticket: "ESHOP-2562", parent: "ESHOP-2500", prNum: "12", prLabel: "#12 draft", prState: "draft",
+		prTitle: "fix(eshop): ESHOP-2562 quitar euskera", jiraSummary: "Quitar euskera"}
+	tokens := tokensFor(w, aiPlan{})
+	want := map[string]string{
+		"title": "#12 quitar euskera", "desc": "quitar euskera", "ticket": "ESHOP-2562",
+		"parent": "↳ ESHOP-2500", "pr": "#12 draft", "pr_state": "draft", "ref": "",
+	}
+	for name, v := range want {
+		if tokens[name] != v {
+			t.Errorf("tokens[%q] = %q, want %q", name, tokens[name], v)
+		}
+	}
+	args := strings.Join(reportArgs("w1", tokens), " ")
+	// what publish built before the token set was a value of its own
+	wantArgs := "workspace report-metadata w1 --source asumaran.asmeta" +
+		" --token title=#12 quitar euskera --token desc=quitar euskera --token ticket=ESHOP-2562" +
+		" --token parent=↳ ESHOP-2500 --token pr=#12 draft --token pr_state=draft --clear-token ref"
+	if args != wantArgs {
+		t.Errorf("args =\n%s\nwant\n%s", args, wantArgs)
+	}
+
+	bare := tokensFor(&workspace{id: "w2", label: "scratch"}, aiPlan{})
+	if got := strings.Join(reportArgs("w2", bare), " "); got != "workspace report-metadata w2 --source asumaran.asmeta"+
+		" --token title=scratch --clear-token desc --clear-token ticket --clear-token parent"+
+		" --clear-token pr --clear-token pr_state --clear-token ref" {
+		t.Errorf("no checkout: %s", got)
+	}
+}
+
+func TestPublishedCacheRoundTrip(t *testing.T) {
+	stateDir = t.TempDir()
+	tokens := map[string]string{"title": "#12 quitar euskera", "ticket": "ESHOP-2562"}
+	writeJSONFile(publishedCache("w1"), tokens)
+	var got map[string]string
+	readJSONFile(publishedCache("w1"), &got)
+	if got["title"] != tokens["title"] || got["ticket"] != tokens["ticket"] {
+		t.Errorf("got %v", got)
+	}
+	if strings.Join(reportArgs("w1", got), " ") != strings.Join(reportArgs("w1", tokens), " ") {
+		t.Error("a replay must say what the publish said")
+	}
+}
+
 func TestWorkspaceFromEnv(t *testing.T) {
 	t.Setenv("HERDR_WORKSPACE_ID", "")
 	t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", "")

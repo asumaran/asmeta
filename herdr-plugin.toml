@@ -11,7 +11,9 @@ platforms = ["linux", "macos"]
 [[build]]
 command = ["scripts/fetch-binary.sh"]
 
-# Refresh every workspace when the server starts (tokens do not survive a restart).
+# Refresh every workspace when the server starts (tokens do not survive a
+# restart). The last published tokens are replayed from disk first, so the
+# sidebar fills at once while the refresh runs.
 [[startup]]
 command = ["./asmeta", "--all"]
 

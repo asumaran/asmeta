@@ -27,6 +27,11 @@
 // generation goes through a queue drained by a single process at a time, so
 // concurrent events never pile up model calls or herdr plugin command slots.
 //
+// Every published token set is kept in published/<workspace id>.json. The
+// startup hook replays those files before any network work, so the sidebar
+// fills at once after a server restart (herdr does not persist tokens) and
+// the refresh then corrects whatever changed while the server was down.
+//
 // After reporting, the linked worktrees of each repo are reordered in the
 // sidebar (regroup.go). ASMETA_REGROUP=0 disables it. Focus and rename events
 // never reorder.
@@ -314,14 +319,16 @@ func describe(s string) string {
 
 // ---- publishing ----
 
-// publish reports the workspace's tokens, with the cached descriptor of p.
-func publish(w *workspace, p aiPlan) {
+// tokenNames is the order tokens are reported in. A token whose value is ""
+// is cleared; title is always set.
+var tokenNames = []string{"title", "desc", "ticket", "parent", "pr", "pr_state", "ref"}
+
+// tokensFor is the token set a workspace publishes, with the cached
+// descriptor of p. A missing name reads as "".
+func tokensFor(w *workspace, p aiPlan) map[string]string {
 	if w.path == "" {
 		// No checkout: just the name.
-		herdrDo("workspace", "report-metadata", w.id, "--source", source, "--token", "title="+w.label,
-			"--clear-token", "desc", "--clear-token", "ticket", "--clear-token", "parent", "--clear-token", "pr",
-			"--clear-token", "pr_state", "--clear-token", "ref")
-		return
+		return map[string]string{"title": w.label}
 	}
 	var title, desc, ref string
 	if w.linked {
@@ -345,30 +352,72 @@ func publish(w *workspace, p aiPlan) {
 	} else {
 		title, ref = w.label, w.branch
 	}
-	args := []string{"workspace", "report-metadata", w.id, "--source", source, "--token", "title=" + title}
-	tok := func(name, v string) {
-		if v != "" {
+	parent := ""
+	if w.parent != "" {
+		parent = "↳ " + w.parent
+	}
+	return map[string]string{
+		"title": title, "desc": desc, "ticket": w.ticket, "parent": parent,
+		"pr": w.prLabel, "pr_state": w.prState, "ref": ref,
+	}
+}
+
+// reportArgs is the report-metadata command for a token set.
+func reportArgs(id string, tokens map[string]string) []string {
+	args := []string{"workspace", "report-metadata", id, "--source", source}
+	for _, name := range tokenNames {
+		if v := tokens[name]; v != "" || name == "title" {
 			args = append(args, "--token", name+"="+v)
 		} else {
 			args = append(args, "--clear-token", name)
 		}
 	}
-	tok("desc", desc)
-	tok("ticket", w.ticket)
-	if w.parent != "" {
-		tok("parent", "↳ "+w.parent)
-	} else {
-		tok("parent", "")
-	}
-	tok("pr", w.prLabel)
-	tok("pr_state", w.prState)
-	tok("ref", ref)
-	if err := herdrDo(args...); err != nil {
+	return args
+}
+
+// publishedCache is where a workspace's last published token set lives.
+func publishedCache(id string) string {
+	return filepath.Join(stateDir, "published", id+".json")
+}
+
+// publish reports the workspace's tokens, with the cached descriptor of p,
+// and keeps what it said on disk so the next server start replays it at once
+// (herdr does not persist tokens across a restart).
+func publish(w *workspace, p aiPlan) {
+	tokens := tokensFor(w, p)
+	if err := herdrDo(reportArgs(w.id, tokens)...); err != nil {
 		logf("report-metadata failed for %s: %v", w.id, err)
 		return
 	}
+	writeJSONFile(publishedCache(w.id), tokens)
+	if w.path == "" {
+		return
+	}
 	writeFileAtomic(filepath.Join(stateDir, "last", w.id), nil)
-	logf("%s %s title=%s ticket=%s parent=%s pr=%s", w.id, orDefault(w.branch, "?"), title, w.ticket, w.parent, w.prLabel)
+	logf("%s %s title=%s ticket=%s parent=%s pr=%s", w.id, orDefault(w.branch, "?"), tokens["title"], w.ticket, w.parent, w.prLabel)
+}
+
+// replayPublished reports each workspace's last published token set again,
+// straight from disk, so the sidebar fills at once after a server restart
+// while the slow refresh below (GitHub, Jira, git) recomputes everything.
+// Stale-while-revalidate, as the rest of the family renders.
+func replayPublished(list wsList) {
+	n := 0
+	for _, row := range list.Result.Workspaces {
+		var tokens map[string]string
+		readJSONFile(publishedCache(row.ID), &tokens)
+		if len(tokens) == 0 {
+			continue
+		}
+		if err := herdrDo(reportArgs(row.ID, tokens)...); err != nil {
+			logf("replay failed for %s: %v", row.ID, err)
+			continue
+		}
+		n++
+	}
+	if n > 0 {
+		logf("replayed %d workspaces from the published cache", n)
+	}
 }
 
 // ---- entry ----
@@ -464,6 +513,11 @@ func run(argv []string) int {
 	if err != nil {
 		logf("herdr workspace list failed")
 		return 1
+	}
+	// On startup every token map is empty (herdr does not persist them), and
+	// the refresh below takes seconds: replay the last published set first.
+	if event == "startup" {
+		replayPublished(list)
 	}
 	// The PR cache first: one query for every workspace, and every workspace
 	// whose PR changed is published again, not only the one this run is for.
