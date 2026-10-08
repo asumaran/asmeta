@@ -10,6 +10,12 @@ The descriptor is a 3 to 5 word summary, written once per PR or ticket by
 `claude -p` (Haiku) and cached. Until it exists, or without `claude`, the row
 shows the PR title, then the Jira summary, then the workspace label.
 
+An aswork coordinator space (a workspace whose pane sits in a task directory,
+`~/.claude/work/<KEY>/`) has no checkout; instead of a bare label its rows
+say `coord · <task title>` on top, then the deliverables summary
+(`3 rows · monorepo-front +1`), the parent task and, when the key is a Jira
+ticket, the KEY styled like any other ticket.
+
 ## Install
 
 Requires herdr >= 0.9.0 on macOS or Linux and the GitHub CLI (`gh`) for the

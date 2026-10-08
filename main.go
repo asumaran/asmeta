@@ -7,7 +7,8 @@
 //	--regen                drop the cached AI descriptor and generate it again
 //	--prs                  refresh the shared PR cache now and publish what changed
 //
-// Tokens: $title (row 1: "#PR descriptor" on a linked worktree, the workspace
+// Tokens: $title (row 1: "#PR descriptor" on a linked worktree, "coord ·
+// <task title>" on an aswork coordinator space (taskdir.go), the workspace
 // label elsewhere), $desc (the descriptor alone, what asgoto searches),
 // $ticket, $parent, $pr ("#123 draft", kept for sorting), $pr_state (draft,
 // merged or closed), $ref (the branch, on the main checkout and on
@@ -336,8 +337,12 @@ var tokenNames = []string{"title", "desc", "ticket", "parent", "pr", "pr_state",
 // descriptor of p. A missing name reads as "".
 func tokensFor(w *workspace, p aiPlan) map[string]string {
 	if w.path == "" {
-		// No checkout: the name, plus the harness IDs when the pane sits in a
-		// task dir (a coordinator space).
+		// No checkout: a coordinator space (the pane sits in an aswork task
+		// dir) renders the task; anything else keeps its name, plus the
+		// harness IDs when a lineage record points at the cwd.
+		if t := taskInfoFor(w.cwd); t != nil {
+			return taskTokens(w, t)
+		}
 		return map[string]string{
 			"title": w.label, "harness": w.harness, "harness_ref": w.harnessRef,
 		}
