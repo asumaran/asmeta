@@ -1,3 +1,8 @@
+## v0.3.0 (2026-10-08)
+
+* feat: render aswork coordinator spaces in the sidebar (47f1549)
+* feat: publish harness and harness_ref workspace tokens (e0e7659)
+
 ## v0.2.0 (2026-10-08)
 
 * perf: replay last published tokens at startup (c360370)

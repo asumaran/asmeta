@@ -1,6 +1,6 @@
 id = "asumaran.asmeta"
 name = "asmeta"
-version = "0.2.0"
+version = "0.3.0"
 min_herdr_version = "0.9.0"
 description = "Report what each workspace is about as Space sidebar tokens: $title (#PR plus an AI descriptor, Claude Haiku, with PR title / Jira summary / label fallbacks), $desc, $ticket, $parent, $pr, $pr_state and $ref; sort each repo's worktrees by parent, ticket, PR"
 platforms = ["linux", "macos"]
