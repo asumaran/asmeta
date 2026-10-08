@@ -72,11 +72,13 @@ func TestTokensForAndReportArgs(t *testing.T) {
 	stateDir = t.TempDir()
 	w := &workspace{id: "w1", label: "eshop-2562", path: "/x", linked: true, branch: "feat/ESHOP-2562",
 		ticket: "ESHOP-2562", parent: "ESHOP-2500", prNum: "12", prLabel: "#12 draft", prState: "draft",
-		prTitle: "fix(eshop): ESHOP-2562 quitar euskera", jiraSummary: "Quitar euskera"}
+		prTitle: "fix(eshop): ESHOP-2562 quitar euskera", jiraSummary: "Quitar euskera",
+		harness: "es-2562-a", harnessRef: "ESHOP-2562#A"}
 	tokens := tokensFor(w, aiPlan{})
 	want := map[string]string{
 		"title": "#12 quitar euskera", "desc": "quitar euskera", "ticket": "ESHOP-2562",
 		"parent": "↳ ESHOP-2500", "pr": "#12 draft", "pr_state": "draft", "ref": "",
+		"harness": "es-2562-a", "harness_ref": "ESHOP-2562#A",
 	}
 	for name, v := range want {
 		if tokens[name] != v {
@@ -87,7 +89,8 @@ func TestTokensForAndReportArgs(t *testing.T) {
 	// what publish built before the token set was a value of its own
 	wantArgs := "workspace report-metadata w1 --source asumaran.asmeta" +
 		" --token title=#12 quitar euskera --token desc=quitar euskera --token ticket=ESHOP-2562" +
-		" --token parent=↳ ESHOP-2500 --token pr=#12 draft --token pr_state=draft --clear-token ref"
+		" --token parent=↳ ESHOP-2500 --token pr=#12 draft --token pr_state=draft --clear-token ref" +
+		" --token harness=es-2562-a --token harness_ref=ESHOP-2562#A"
 	if args != wantArgs {
 		t.Errorf("args =\n%s\nwant\n%s", args, wantArgs)
 	}
@@ -95,8 +98,15 @@ func TestTokensForAndReportArgs(t *testing.T) {
 	bare := tokensFor(&workspace{id: "w2", label: "scratch"}, aiPlan{})
 	if got := strings.Join(reportArgs("w2", bare), " "); got != "workspace report-metadata w2 --source asumaran.asmeta"+
 		" --token title=scratch --clear-token desc --clear-token ticket --clear-token parent"+
-		" --clear-token pr --clear-token pr_state --clear-token ref" {
+		" --clear-token pr --clear-token pr_state --clear-token ref"+
+		" --clear-token harness --clear-token harness_ref" {
 		t.Errorf("no checkout: %s", got)
+	}
+
+	coord := tokensFor(&workspace{id: "w3", label: "task: ESHOP-1270",
+		harness: "es-1270", harnessRef: "ESHOP-1270"}, aiPlan{})
+	if coord["harness"] != "es-1270" || coord["harness_ref"] != "ESHOP-1270" || coord["title"] != "task: ESHOP-1270" {
+		t.Errorf("coordinator without checkout: %v", coord)
 	}
 }
 

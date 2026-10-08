@@ -10,8 +10,10 @@
 // Tokens: $title (row 1: "#PR descriptor" on a linked worktree, the workspace
 // label elsewhere), $desc (the descriptor alone, what asgoto searches),
 // $ticket, $parent, $pr ("#123 draft", kept for sorting), $pr_state (draft,
-// merged or closed) and $ref (the branch, on the main checkout and on
-// worktrees without a ticket, so row 2 always says something).
+// merged or closed), $ref (the branch, on the main checkout and on
+// worktrees without a ticket, so row 2 always says something), and $harness /
+// $harness_ref (the aswork worker name and task ref from the lineage
+// records, empty outside the harness).
 //
 // Sources: branch name (ticket key), the shared PR cache (prs.json, which this
 // plugin writes with one GitHub query for every workspace: prfetch.go,
@@ -177,6 +179,7 @@ func firstPaneCwd(id string) string {
 
 type workspace struct {
 	id, label, path string
+	cwd             string
 	linked          bool
 	branch, ticket  string
 	parent          string
@@ -186,12 +189,15 @@ type workspace struct {
 	prBase          string
 	jiraSummary     string
 	jiraDesc        string
+	harness         string
+	harnessRef      string
 }
 
 // collect works out one workspace of a `workspace list`: its checkout and
 // branch (locate), its PR from the shared cache, its ticket from Jira.
 func collect(list wsList, id string) *workspace {
 	w := locate(list, id)
+	w.harness, w.harnessRef = harnessFor(orDefault(w.path, w.cwd))
 	if w.path == "" {
 		return w
 	}
@@ -232,7 +238,10 @@ func locate(list wsList, id string) *workspace {
 	if w.path == "" {
 		// herdr reported no worktree metadata (the space predates its git
 		// discovery): the first pane's cwd still tells which checkout it is.
+		// The cwd is kept even outside git: a coordinator space sits in
+		// ~/.claude/work/<KEY>, which is what its lineage record points at.
 		if cwd := firstPaneCwd(id); cwd != "" {
+			w.cwd = cwd
 			if top := gitOut(cwd, "rev-parse", "--show-toplevel"); top != "" {
 				w.path = top
 				gitDir := gitOut(top, "rev-parse", "--absolute-git-dir")
@@ -321,14 +330,17 @@ func describe(s string) string {
 
 // tokenNames is the order tokens are reported in. A token whose value is ""
 // is cleared; title is always set.
-var tokenNames = []string{"title", "desc", "ticket", "parent", "pr", "pr_state", "ref"}
+var tokenNames = []string{"title", "desc", "ticket", "parent", "pr", "pr_state", "ref", "harness", "harness_ref"}
 
 // tokensFor is the token set a workspace publishes, with the cached
 // descriptor of p. A missing name reads as "".
 func tokensFor(w *workspace, p aiPlan) map[string]string {
 	if w.path == "" {
-		// No checkout: just the name.
-		return map[string]string{"title": w.label}
+		// No checkout: the name, plus the harness IDs when the pane sits in a
+		// task dir (a coordinator space).
+		return map[string]string{
+			"title": w.label, "harness": w.harness, "harness_ref": w.harnessRef,
+		}
 	}
 	var title, desc, ref string
 	if w.linked {
@@ -359,6 +371,7 @@ func tokensFor(w *workspace, p aiPlan) map[string]string {
 	return map[string]string{
 		"title": title, "desc": desc, "ticket": w.ticket, "parent": parent,
 		"pr": w.prLabel, "pr_state": w.prState, "ref": ref,
+		"harness": w.harness, "harness_ref": w.harnessRef,
 	}
 }
 
