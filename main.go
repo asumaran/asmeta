@@ -198,7 +198,7 @@ type workspace struct {
 // branch (locate), its PR from the shared cache, its ticket from Jira.
 func collect(list wsList, id string) *workspace {
 	w := locate(list, id)
-	w.harness, w.harnessRef = harnessFor(orDefault(w.path, w.cwd))
+	w.harness, w.harnessRef = harnessFor(w.id, orDefault(w.path, w.cwd))
 	if w.path == "" {
 		return w
 	}

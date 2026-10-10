@@ -26,29 +26,41 @@ func TestHarnessFor(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("es-1270-f.json", `{"agent":{"name":"es-1270-f","worktree":"`+worker+`"},"task":{"ref":"ESHOP-1270#F"}}`)
-	write("es-1270.json", `{"agent":{"name":"es-1270","worktree":"`+taskDir+`"},"task":{"ref":"ESHOP-1270"}}`)
+	write("es-1270-f.json", `{"agent":{"name":"es-1270-f","workspace_id":"w1","worktree":"`+worker+`"},"task":{"ref":"ESHOP-1270#F"}}`)
+	write("es-1270.json", `{"agent":{"name":"es-1270","workspace_id":"w2","worktree":"`+taskDir+`"},"task":{"ref":"ESHOP-1270"}}`)
+	write("legacy.json", `{"agent":{"name":"legacy","worktree":"`+worker+`"},"task":{"ref":"LEGACY-1"}}`)
 	write("broken.json", `{`)
 	write("es-1270-f.lock", "")
-	write(filepath.Join("archive", "old.json"), `{"agent":{"name":"old","worktree":"`+worker+`"},"task":{"ref":"OLD-1"}}`)
+	write(filepath.Join("archive", "old.json"), `{"agent":{"name":"old","workspace_id":"w1","worktree":"`+worker+`"},"task":{"ref":"OLD-1"}}`)
 
-	oldDir, oldMap := lineageDir, harnessByWorktree
-	lineageDir, harnessByWorktree = lin, nil
-	t.Cleanup(func() { lineageDir, harnessByWorktree = oldDir, oldMap })
+	oldDir, oldRecs := lineageDir, lineageRecords
+	lineageDir, lineageRecords = lin, nil
+	t.Cleanup(func() { lineageDir, lineageRecords = oldDir, oldRecs })
 
-	if name, ref := harnessFor(worker); name != "es-1270-f" || ref != "ESHOP-1270#F" {
-		t.Errorf("worker: got %q %q", name, ref)
+	if name, ref := harnessFor("w1", worker); name != "es-1270-f" || ref != "ESHOP-1270#F" {
+		t.Errorf("worker by workspace: got %q %q", name, ref)
 	}
-	if name, ref := harnessFor(taskDir); name != "es-1270" || ref != "ESHOP-1270" {
+	if name, ref := harnessFor("w2", taskDir); name != "es-1270" || ref != "ESHOP-1270" {
 		t.Errorf("coordinator (non-git task dir): got %q %q", name, ref)
 	}
-	if name, ref := harnessFor(link); name != "es-1270-f" || ref != "ESHOP-1270#F" {
+	// The workspace match does not need the path: the agent's pane may have
+	// moved to another directory since the record was written.
+	if name, _ := harnessFor("w1", filepath.Join(dir, "elsewhere")); name != "es-1270-f" {
+		t.Errorf("workspace match without path: got %q", name)
+	}
+	// A record naming a workspace never matches another workspace by path:
+	// a new space in the same checkout must not inherit a leftover record.
+	// Only the legacy record (no workspace_id) matches by path.
+	if name, ref := harnessFor("w9", worker); name != "legacy" || ref != "LEGACY-1" {
+		t.Errorf("other workspace, same checkout: got %q %q", name, ref)
+	}
+	if name, ref := harnessFor("w9", link); name != "legacy" || ref != "LEGACY-1" {
 		t.Errorf("symlinked path: got %q %q", name, ref)
 	}
-	if name, ref := harnessFor(filepath.Join(dir, "elsewhere")); name != "" || ref != "" {
+	if name, ref := harnessFor("w9", filepath.Join(dir, "elsewhere")); name != "" || ref != "" {
 		t.Errorf("no record: got %q %q", name, ref)
 	}
-	if name, _ := harnessFor(""); name != "" {
+	if name, _ := harnessFor("w9", ""); name != "" {
 		t.Errorf("empty dir: got %q", name)
 	}
 }

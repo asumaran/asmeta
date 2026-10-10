@@ -2,8 +2,12 @@ package main
 
 // The aswork harness identifies every agent with a worker name (es-1270-f)
 // and a task ref (ESHOP-1270#F), recorded in one lineage file per agent.
-// harnessFor maps a workspace's checkout (or cwd) to those two IDs so they
-// can be published as the $harness / $harness_ref tokens.
+// harnessFor maps a workspace to those two IDs so they can be published as
+// the $harness / $harness_ref tokens. A record names the workspace its agent
+// runs in (agent.workspace_id) and that match is exact: a leftover record
+// never bleeds into another space sitting in the same checkout. Only a
+// record without a workspace (an agent launched outside herdr) matches by
+// checkout path.
 
 import (
 	"encoding/json"
@@ -24,30 +28,45 @@ func defaultLineageDir() string {
 	return filepath.Join(home, ".claude", "agent-lineage")
 }
 
-type harnessID struct{ name, ref string }
+type lineageRecord struct {
+	name, ref   string
+	workspaceID string
+	worktree    string // realPath'd
+}
 
-// harnessByWorktree memoizes realpath(agent.worktree) → IDs for the whole
-// run; one asmeta run reads the records at most once.
-var harnessByWorktree map[string]harnessID
+// lineageRecords memoizes the records for the whole run; one asmeta run
+// reads them at most once. nil means not loaded yet.
+var lineageRecords []lineageRecord
 
 // harnessFor is the worker name and task ref of the lineage record whose
-// agent.worktree is dir; both "" when no record matches (the tokens are then
-// cleared on publish).
-func harnessFor(dir string) (name, ref string) {
+// agent sits in the workspace wsID (or, for a record that does not name a
+// workspace, whose agent.worktree is dir); both "" when no record matches
+// (the tokens are then cleared on publish).
+func harnessFor(wsID, dir string) (name, ref string) {
+	if lineageRecords == nil {
+		lineageRecords = loadLineage()
+	}
+	for _, r := range lineageRecords {
+		if r.workspaceID != "" && r.workspaceID == wsID {
+			return r.name, r.ref
+		}
+	}
 	if dir == "" {
 		return "", ""
 	}
-	if harnessByWorktree == nil {
-		harnessByWorktree = loadLineage()
+	real := realPath(dir)
+	for _, r := range lineageRecords {
+		if r.workspaceID == "" && r.worktree != "" && r.worktree == real {
+			return r.name, r.ref
+		}
 	}
-	id := harnessByWorktree[realPath(dir)]
-	return id.name, id.ref
+	return "", ""
 }
 
 // loadLineage reads every top-level lineage record. The glob skips archive/
 // and the .lock files by shape.
-func loadLineage() map[string]harnessID {
-	m := map[string]harnessID{}
+func loadLineage() []lineageRecord {
+	recs := []lineageRecord{}
 	paths, _ := filepath.Glob(filepath.Join(lineageDir, "*.json"))
 	for _, path := range paths {
 		data, err := os.ReadFile(path)
@@ -56,19 +75,30 @@ func loadLineage() map[string]harnessID {
 		}
 		var rec struct {
 			Agent struct {
-				Name     string `json:"name"`
-				Worktree string `json:"worktree"`
+				Name        string `json:"name"`
+				WorkspaceID string `json:"workspace_id"`
+				Worktree    string `json:"worktree"`
 			} `json:"agent"`
 			Task struct {
 				Ref string `json:"ref"`
 			} `json:"task"`
 		}
-		if json.Unmarshal(data, &rec) != nil || rec.Agent.Worktree == "" {
+		if json.Unmarshal(data, &rec) != nil {
 			continue
 		}
-		m[realPath(rec.Agent.Worktree)] = harnessID{rec.Agent.Name, rec.Task.Ref}
+		if rec.Agent.WorkspaceID == "" && rec.Agent.Worktree == "" {
+			continue
+		}
+		worktree := ""
+		if rec.Agent.Worktree != "" {
+			worktree = realPath(rec.Agent.Worktree)
+		}
+		recs = append(recs, lineageRecord{
+			name: rec.Agent.Name, ref: rec.Task.Ref,
+			workspaceID: rec.Agent.WorkspaceID, worktree: worktree,
+		})
 	}
-	return m
+	return recs
 }
 
 // realPath resolves symlinks so both sides of a match compare physical paths
