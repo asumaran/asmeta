@@ -11,10 +11,16 @@
 // <task title>" on an aswork coordinator space (taskdir.go), the workspace
 // label elsewhere), $desc (the descriptor alone, what asgoto searches),
 // $ticket, $parent, $pr ("#123 draft", kept for sorting), $pr_state (draft,
-// merged or closed), $ref (the branch, on the main checkout and on
-// worktrees without a ticket, so row 2 always says something), and $harness /
-// $harness_ref (the aswork worker name and task ref from the lineage
-// records, empty outside the harness).
+// merged or closed), $ref (a coordinator space's deliverables summary; a git
+// branch is herdr's own `branch` token, which follows the pane's cwd on its
+// own and so never goes stale), and $harness /
+// $harness_ref (the aswork worker name and task ref of the lineage record
+// naming this workspace, empty outside the harness).
+//
+// The spaces whose title asmeta owns (a linked worktree, an aswork task
+// space) also get it as their herdr label (workspace rename), so the
+// sidebar's native workspace token shows it. Every other space keeps herdr's
+// automatic label, which follows the pane's cwd on its own.
 //
 // Sources: branch name (ticket key), the shared PR cache (prs.json, which this
 // plugin writes with one GitHub query for every workspace: prfetch.go,
@@ -34,6 +40,10 @@
 // startup hook replays those files before any network work, so the sidebar
 // fills at once after a server restart (herdr does not persist tokens) and
 // the refresh then corrects whatever changed while the server was down.
+// A created workspace likewise publishes a provisional set (label, branch,
+// harness) before any network work. Focus events are throttled, except when
+// the pane moved to another checkout since the last publish (identity/<id>):
+// herdr emits no event for a cd, so the next focus must correct the title.
 //
 // After reporting, the linked worktrees of each repo are reordered in the
 // sidebar (regroup.go). ASMETA_REGROUP=0 disables it. Focus and rename events
@@ -347,7 +357,7 @@ func tokensFor(w *workspace, p aiPlan) map[string]string {
 			"title": w.label, "harness": w.harness, "harness_ref": w.harnessRef,
 		}
 	}
-	var title, desc, ref string
+	var title, desc string
 	if w.linked {
 		cached := ""
 		if p.key != "" && aiCached(p.key) {
@@ -363,11 +373,8 @@ func tokensFor(w *workspace, p aiPlan) map[string]string {
 		if w.prNum != "" {
 			title = "#" + w.prNum + " " + title
 		}
-		if w.ticket == "" {
-			ref = w.branch
-		}
 	} else {
-		title, ref = w.label, w.branch
+		title = w.label
 	}
 	parent := ""
 	if w.parent != "" {
@@ -375,7 +382,7 @@ func tokensFor(w *workspace, p aiPlan) map[string]string {
 	}
 	return map[string]string{
 		"title": title, "desc": desc, "ticket": w.ticket, "parent": parent,
-		"pr": w.prLabel, "pr_state": w.prState, "ref": ref,
+		"pr": w.prLabel, "pr_state": w.prState,
 		"harness": w.harness, "harness_ref": w.harnessRef,
 	}
 }
@@ -398,6 +405,30 @@ func publishedCache(id string) string {
 	return filepath.Join(stateDir, "published", id+".json")
 }
 
+// identityFile is where the checkout (or cwd) the last published tokens were
+// computed from lives. The focus throttle is skipped when it no longer
+// matches: a space whose pane moved to another checkout must not keep the old
+// title for two minutes.
+func identityFile(id string) string {
+	return filepath.Join(stateDir, "identity", id)
+}
+
+// maybeRename carries a controlled space's title into herdr's own label. The
+// sidebar's first row is the native workspace token, which herdr keeps in
+// sync with the pane's cwd on its own; asmeta only overrides it on the spaces
+// whose title it owns (a linked worktree, an aswork task space) and never
+// touches the rest. A label that already matches is left alone: renaming it
+// again would cycle through the workspace.renamed hook.
+func maybeRename(w *workspace, title string) {
+	controlled := w.linked || (w.path == "" && taskInfoFor(w.cwd) != nil)
+	if !controlled || title == "" || title == w.label {
+		return
+	}
+	if err := herdrDo("workspace", "rename", w.id, title); err != nil {
+		logf("rename failed for %s: %v", w.id, err)
+	}
+}
+
 // publish reports the workspace's tokens, with the cached descriptor of p,
 // and keeps what it said on disk so the next server start replays it at once
 // (herdr does not persist tokens across a restart).
@@ -407,7 +438,9 @@ func publish(w *workspace, p aiPlan) {
 		logf("report-metadata failed for %s: %v", w.id, err)
 		return
 	}
+	maybeRename(w, tokens["title"])
 	writeJSONFile(publishedCache(w.id), tokens)
+	writeText(identityFile(w.id), orDefault(w.path, w.cwd))
 	if w.path == "" {
 		return
 	}
@@ -537,6 +570,16 @@ func run(argv []string) int {
 	if event == "startup" {
 		replayPublished(list)
 	}
+	// A new space renders at once: before the PR/Jira work below, report a
+	// cheap provisional set (the herdr label, the branch, the harness IDs).
+	// The full pass in this same run then corrects it.
+	if event == "workspace.created" || event == "worktree.opened" {
+		if id := workspaceFromEnv(); id != "" {
+			w := locate(list, id)
+			w.harness, w.harnessRef = harnessFor(w.id, orDefault(w.path, w.cwd))
+			publish(w, aiPlan{})
+		}
+	}
 	// The PR cache first: one query for every workspace, and every workspace
 	// whose PR changed is published again, not only the one this run is for.
 	mode := refreshAlways
@@ -563,7 +606,13 @@ func run(argv []string) int {
 		ids = []string{id}
 		if event == "workspace.focused" && !force {
 			if age, ok := fileAge(filepath.Join(stateDir, "last", id)); ok && age < focusThrottle {
-				ids = nil
+				// The throttle protects gh and Jira, not a moved space: when
+				// the pane now sits in another checkout than the one the
+				// published tokens came from, refresh on this focus anyway.
+				w := locate(list, id)
+				if orDefault(w.path, w.cwd) == readText(identityFile(id)) {
+					ids = nil
+				}
 			}
 		}
 	}
