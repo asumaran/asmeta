@@ -10,7 +10,7 @@
 // Tokens: $title (row 1: the descriptor on a linked worktree, the task
 // title on an aswork coordinator space (taskdir.go), the workspace
 // label elsewhere), $desc (the descriptor alone, what asgoto searches),
-// $ticket, $parent, $pr ("PR#123 draft", kept for sorting), $pr_state (draft,
+// $ticket, $parent, $pr ("pr#123 draft", kept for sorting), $pr_state (draft,
 // merged or closed), $ref (a coordinator space's deliverables summary; a git
 // branch is herdr's own `branch` token, which follows the pane's cwd on its
 // own and so never goes stale), and $harness /
@@ -300,7 +300,7 @@ func readPR(w *workspace, prs sharedPRs, pair prPair) {
 	w.prBase = chomp(pr.Base)
 	w.prTitle = chomp(pr.Title)
 	w.prBody = chomp(cutRunes(pr.Body, 1500))
-	w.prLabel = "PR#" + w.prNum
+	w.prLabel = "pr#" + w.prNum
 	if w.prState != "" {
 		w.prLabel += " " + w.prState
 	}

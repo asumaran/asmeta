@@ -83,7 +83,7 @@ func TestTokensForCoordinatorSpace(t *testing.T) {
 	// a GitHub issue link becomes the $ticket when the key is no Jira KEY
 	issue := writeTask(t, "---\nkey: shopnest-wish\ntitle: \"Wishlist\"\nlink: \"https://github.com/asumaran/shopnest/issues/18\"\nrepo: /Users/u/Developer/shopnest\nparent: none\ndeliverables:\n  - id: A\n    repo: /Users/u/Developer/other\n---\n")
 	tokens = tokensFor(&workspace{id: "w7", label: "shopnest-wish", cwd: issue}, aiPlan{})
-	if tokens["title"] != "Wishlist" || tokens["ticket"] != "Issue#18" {
+	if tokens["title"] != "Wishlist" || tokens["ticket"] != "issue#18" {
 		t.Errorf("issue task: %v", tokens)
 	}
 
@@ -103,7 +103,7 @@ func TestTokensForCoordinatorSpace(t *testing.T) {
 	wk := &workspace{id: "w4", path: "/x", linked: true, label: "wk",
 		harness: "wk_f3k2", harnessRef: "shopnest-wish#A"}
 	tokens = tokensFor(wk, aiPlan{})
-	if tokens["ticket"] != "Issue#18" {
+	if tokens["ticket"] != "issue#18" {
 		t.Errorf("worker ticket: %v", tokens)
 	}
 

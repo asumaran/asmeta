@@ -71,13 +71,13 @@ func TestPlanAIKeyAndPrompt(t *testing.T) {
 func TestTokensForAndReportArgs(t *testing.T) {
 	stateDir = t.TempDir()
 	w := &workspace{id: "w1", label: "eshop-2562", path: "/x", linked: true, branch: "feat/ESHOP-2562",
-		ticket: "ESHOP-2562", parent: "ESHOP-2500", prNum: "12", prLabel: "PR#12 draft", prState: "draft",
+		ticket: "ESHOP-2562", parent: "ESHOP-2500", prNum: "12", prLabel: "pr#12 draft", prState: "draft",
 		prTitle: "fix(eshop): ESHOP-2562 quitar euskera", jiraSummary: "Quitar euskera",
 		harness: "es-2562-a", harnessRef: "ESHOP-2562#A"}
 	tokens := tokensFor(w, aiPlan{})
 	want := map[string]string{
 		"title": "quitar euskera", "desc": "quitar euskera", "ticket": "ESHOP-2562",
-		"parent": "↳ ESHOP-2500", "pr": "PR#12 draft", "pr_state": "draft", "ref": "",
+		"parent": "↳ ESHOP-2500", "pr": "pr#12 draft", "pr_state": "draft", "ref": "",
 		"harness": "es-2562-a", "harness_ref": "ESHOP-2562#A",
 	}
 	for name, v := range want {
@@ -89,7 +89,7 @@ func TestTokensForAndReportArgs(t *testing.T) {
 	// what publish built before the token set was a value of its own
 	wantArgs := "workspace report-metadata w1 --source asumaran.asmeta" +
 		" --token title=quitar euskera --token desc=quitar euskera --token ticket=ESHOP-2562" +
-		" --token parent=↳ ESHOP-2500 --token pr=PR#12 draft --token pr_state=draft --clear-token ref" +
+		" --token parent=↳ ESHOP-2500 --token pr=pr#12 draft --token pr_state=draft --clear-token ref" +
 		" --token harness=es-2562-a --token harness_ref=ESHOP-2562#A"
 	if args != wantArgs {
 		t.Errorf("args =\n%s\nwant\n%s", args, wantArgs)
