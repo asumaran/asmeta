@@ -1,3 +1,9 @@
+## v0.4.0 (2026-10-17)
+
+* feat(sidebar): bare titles, Issue#n/PR#n tokens (2d0f2dc)
+* feat(sidebar): let herdr own space labels, rename only owned spaces (3e744ee)
+* fix(harness): match lineage records by workspace id (03a1b65)
+
 ## v0.3.0 (2026-10-08)
 
 * feat: render aswork coordinator spaces in the sidebar (47f1549)
