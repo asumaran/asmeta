@@ -119,7 +119,7 @@ func TestRefreshPRs(t *testing.T) {
 		t.Fatalf("prs.json: %+v", s)
 	}
 	w := collect(list, "w1")
-	if w.prLabel != "#10 draft" || w.prTitle != "feat: x" || w.prBase != "main" {
+	if w.prLabel != "PR#10 draft" || w.prTitle != "feat: x" || w.prBase != "main" {
 		t.Errorf("collect reads the cache: %+v", w)
 	}
 

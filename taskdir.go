@@ -17,16 +17,19 @@ import (
 
 type taskInfo struct {
 	key, title, parent string
+	link               string // the task's ticket or issue URL, "" when none
 	rows               int
 	repos              []string // distinct repo basenames, row order
 }
 
 var (
-	reTaskKey    = regexp.MustCompile(`(?m)^key:[ \t]*(\S+)[ \t]*$`)
-	reTaskTitle  = regexp.MustCompile(`(?m)^title:[ \t]*(.*?)[ \t]*$`)
-	reTaskParent = regexp.MustCompile(`(?m)^parent:[ \t]*(\S+)[ \t]*$`)
-	reTaskRow    = regexp.MustCompile(`(?m)^  - id:`)
-	reTaskRepo   = regexp.MustCompile(`(?m)^    repo:[ \t]*(\S+)[ \t]*$`)
+	reTaskKey      = regexp.MustCompile(`(?m)^key:[ \t]*(\S+)[ \t]*$`)
+	reTaskTitle    = regexp.MustCompile(`(?m)^title:[ \t]*(.*?)[ \t]*$`)
+	reTaskParent   = regexp.MustCompile(`(?m)^parent:[ \t]*(\S+)[ \t]*$`)
+	reTaskLink     = regexp.MustCompile(`(?m)^link:[ \t]*"?(\S+?)"?[ \t]*$`)
+	reGHIssueLink  = regexp.MustCompile(`^https://github\.com/[^/]+/[^/]+/issues/(\d+)$`)
+	reTaskRow      = regexp.MustCompile(`(?m)^  - id:`)
+	reTaskRepo     = regexp.MustCompile(`(?m)^    repo:[ \t]*(\S+)[ \t]*$`)
 )
 
 // taskInfoFor is the task whose directory is cwd, nil when cwd holds no
@@ -56,6 +59,9 @@ func taskInfoFor(cwd string) *taskInfo {
 	if m := reTaskParent.FindStringSubmatch(front); m != nil && m[1] != "none" {
 		t.parent = m[1]
 	}
+	if m := reTaskLink.FindStringSubmatch(front); m != nil {
+		t.link = m[1]
+	}
 	t.rows = len(reTaskRow.FindAllString(front, -1))
 	seen := map[string]bool{}
 	for _, m := range reTaskRepo.FindAllStringSubmatch(front, -1) {
@@ -71,6 +77,34 @@ func taskInfoFor(cwd string) *taskInfo {
 	return t
 }
 
+// workDir is where the aswork harness keeps task state, one directory per
+// task KEY (the stem of a worker's harness ref, e.g. "shopnest-badge#A").
+var workDir = defaultWorkDir()
+
+func defaultWorkDir() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".claude", "work")
+}
+
+// issueTicketForRef is the "Issue#n" shown by the task a harness ref points
+// at, "" when the ref has no task directory or the task's link is no GitHub
+// issue. It gives a worker the same $ticket as its coordinator: a GitHub
+// issue number lives only in the task's link, never in a branch name.
+func issueTicketForRef(ref string) string {
+	key, _, _ := strings.Cut(ref, "#")
+	if key == "" {
+		return ""
+	}
+	t := taskInfoFor(filepath.Join(workDir, key))
+	if t == nil {
+		return ""
+	}
+	if m := reGHIssueLink.FindStringSubmatch(t.link); m != nil {
+		return "Issue#" + m[1]
+	}
+	return ""
+}
+
 // unquoteYAML undoes the double-quoted scalar aswork-status writes
 // (title: "..." with \" and \\ escaped); an unquoted value passes through.
 func unquoteYAML(s string) string {
@@ -83,17 +117,17 @@ func unquoteYAML(s string) string {
 	return s
 }
 
-// taskTokens is a coordinator space's token set: row 1 names the task
-// ("coord · <title>"), row 2 carries the deliverables summary ($ref), the
-// parent task and, when the key is a real ticket, the KEY as $ticket, styled
-// and sorted like any other ticket row.
+// taskTokens is a coordinator space's token set: row 1 is the bare task
+// title, row 2 carries the $ticket (Jira KEY, or "Issue#<n>" for a GitHub
+// issue), the deliverables summary ($ref) and the parent task. The
+// coordinator mark is the co_* handle in $harness, not a title prefix.
 func taskTokens(w *workspace, t *taskInfo) map[string]string {
 	title := orDefault(t.title, t.key)
-	ref := "no rows yet"
+	ref := "no deliverables yet"
 	if t.rows == 1 {
-		ref = "1 row"
+		ref = "1 deliverable"
 	} else if t.rows > 1 {
-		ref = fmt.Sprintf("%d rows", t.rows)
+		ref = fmt.Sprintf("%d deliverables", t.rows)
 	}
 	if len(t.repos) > 0 {
 		ref += " · " + t.repos[0]
@@ -105,9 +139,17 @@ func taskTokens(w *workspace, t *taskInfo) map[string]string {
 	if t.parent != "" {
 		parent = "↳ " + t.parent
 	}
+	// $ticket: a Jira KEY in the task key, else the GitHub issue from the
+	// task's link ("Issue#17"; the repo already rides in $harness_ref).
+	ticket := ticketRe.FindString(t.key)
+	if ticket == "" {
+		if m := reGHIssueLink.FindStringSubmatch(t.link); m != nil {
+			ticket = "Issue#" + m[1]
+		}
+	}
 	return map[string]string{
-		"title": cutRunes("coord · "+title, 44), "desc": title,
-		"ticket": ticketRe.FindString(t.key), "parent": parent, "ref": ref,
+		"title": cutRunes(title, 44), "desc": title,
+		"ticket": ticket, "parent": parent, "ref": ref,
 		"harness": w.harness, "harness_ref": w.harnessRef,
 	}
 }

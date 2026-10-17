@@ -7,10 +7,10 @@
 //	--regen                drop the cached AI descriptor and generate it again
 //	--prs                  refresh the shared PR cache now and publish what changed
 //
-// Tokens: $title (row 1: "#PR descriptor" on a linked worktree, "coord ·
-// <task title>" on an aswork coordinator space (taskdir.go), the workspace
+// Tokens: $title (row 1: the descriptor on a linked worktree, the task
+// title on an aswork coordinator space (taskdir.go), the workspace
 // label elsewhere), $desc (the descriptor alone, what asgoto searches),
-// $ticket, $parent, $pr ("#123 draft", kept for sorting), $pr_state (draft,
+// $ticket, $parent, $pr ("PR#123 draft", kept for sorting), $pr_state (draft,
 // merged or closed), $ref (a coordinator space's deliverables summary; a git
 // branch is herdr's own `branch` token, which follows the pane's cwd on its
 // own and so never goes stale), and $harness /
@@ -300,7 +300,7 @@ func readPR(w *workspace, prs sharedPRs, pair prPair) {
 	w.prBase = chomp(pr.Base)
 	w.prTitle = chomp(pr.Title)
 	w.prBody = chomp(cutRunes(pr.Body, 1500))
-	w.prLabel = "#" + w.prNum
+	w.prLabel = "PR#" + w.prNum
 	if w.prState != "" {
 		w.prLabel += " " + w.prState
 	}
@@ -370,9 +370,6 @@ func tokensFor(w *workspace, p aiPlan) map[string]string {
 			}
 		}
 		title = orDefault(desc, w.label)
-		if w.prNum != "" {
-			title = "#" + w.prNum + " " + title
-		}
 	} else {
 		title = w.label
 	}
@@ -380,8 +377,14 @@ func tokensFor(w *workspace, p aiPlan) map[string]string {
 	if w.parent != "" {
 		parent = "↳ " + w.parent
 	}
+	ticket := w.ticket
+	if ticket == "" {
+		// A harness worker on a GitHub-issue task: the branch carries no
+		// Jira KEY, so inherit the Issue#n its task shows (taskdir.go).
+		ticket = issueTicketForRef(w.harnessRef)
+	}
 	return map[string]string{
-		"title": title, "desc": desc, "ticket": w.ticket, "parent": parent,
+		"title": title, "desc": desc, "ticket": ticket, "parent": parent,
 		"pr": w.prLabel, "pr_state": w.prState,
 		"harness": w.harness, "harness_ref": w.harnessRef,
 	}
