@@ -1,3 +1,7 @@
+## v0.4.1 (2026-10-17)
+
+* fix(sidebar): lowercase issue#/pr# token prefixes (349d69c)
+
 ## v0.4.0 (2026-10-17)
 
 * feat(sidebar): bare titles, Issue#n/PR#n tokens (2d0f2dc)
