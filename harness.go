@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // lineageDir is where the aswork harness keeps its lineage records, one JSON
@@ -32,6 +33,7 @@ type lineageRecord struct {
 	name, ref   string
 	workspaceID string
 	worktree    string // realPath'd
+	launchedAt  string // ISO timestamp; survives relaunches
 }
 
 // lineageRecords memoizes the records for the whole run; one asmeta run
@@ -41,26 +43,58 @@ var lineageRecords []lineageRecord
 // harnessFor is the worker name and task ref of the lineage record whose
 // agent sits in the workspace wsID (or, for a record that does not name a
 // workspace, whose agent.worktree is dir); both "" when no record matches
-// (the tokens are then cleared on publish).
+// (the tokens are then cleared on publish). A coordinator may share the
+// workspace with its workers (its tab lives in the task's initial
+// worktree), so with several matches the pick is deterministic: workers
+// (wk_ handles) beat coordinators, the most recently launched wins, and
+// the name breaks a timestamp tie. Legacy records without a generated
+// handle count as workers.
 func harnessFor(wsID, dir string) (name, ref string) {
 	if lineageRecords == nil {
 		lineageRecords = loadLineage()
 	}
-	for _, r := range lineageRecords {
-		if r.workspaceID != "" && r.workspaceID == wsID {
-			return r.name, r.ref
-		}
+	if r := pickRecord(func(r lineageRecord) bool {
+		return r.workspaceID != "" && r.workspaceID == wsID
+	}); r != nil {
+		return r.name, r.ref
 	}
 	if dir == "" {
 		return "", ""
 	}
 	real := realPath(dir)
-	for _, r := range lineageRecords {
-		if r.workspaceID == "" && r.worktree != "" && r.worktree == real {
-			return r.name, r.ref
-		}
+	if r := pickRecord(func(r lineageRecord) bool {
+		return r.workspaceID == "" && r.worktree != "" && r.worktree == real
+	}); r != nil {
+		return r.name, r.ref
 	}
 	return "", ""
+}
+
+// pickRecord selects among the records that match: non-coordinators first
+// (anything not named co_*), then latest launchedAt, then lowest name.
+func pickRecord(match func(lineageRecord) bool) *lineageRecord {
+	var best *lineageRecord
+	for i := range lineageRecords {
+		r := &lineageRecords[i]
+		if !match(*r) {
+			continue
+		}
+		if best == nil || betterRecord(*r, *best) {
+			best = r
+		}
+	}
+	return best
+}
+
+func betterRecord(a, b lineageRecord) bool {
+	aco, bco := strings.HasPrefix(a.name, "co_"), strings.HasPrefix(b.name, "co_")
+	if aco != bco {
+		return !aco
+	}
+	if a.launchedAt != b.launchedAt {
+		return a.launchedAt > b.launchedAt
+	}
+	return a.name < b.name
 }
 
 // loadLineage reads every top-level lineage record. The glob skips archive/
@@ -82,6 +116,7 @@ func loadLineage() []lineageRecord {
 			Task struct {
 				Ref string `json:"ref"`
 			} `json:"task"`
+			LaunchedAt string `json:"launched_at"`
 		}
 		if json.Unmarshal(data, &rec) != nil {
 			continue
@@ -96,6 +131,7 @@ func loadLineage() []lineageRecord {
 		recs = append(recs, lineageRecord{
 			name: rec.Agent.Name, ref: rec.Task.Ref,
 			workspaceID: rec.Agent.WorkspaceID, worktree: worktree,
+			launchedAt: rec.LaunchedAt,
 		})
 	}
 	return recs

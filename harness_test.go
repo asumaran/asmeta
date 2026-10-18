@@ -27,6 +27,12 @@ func TestHarnessFor(t *testing.T) {
 		}
 	}
 	write("es-1270-f.json", `{"agent":{"name":"es-1270-f","workspace_id":"w1","worktree":"`+worker+`"},"task":{"ref":"ESHOP-1270#F"}}`)
+	// Shared workspace: the coordinator's tab lives in the worktree's
+	// workspace (w3) next to its workers. The worker must win, and among
+	// workers the most recently launched.
+	write("co_ab12.json", `{"agent":{"name":"co_ab12","workspace_id":"w3","worktree":"`+taskDir+`"},"task":{"ref":"ESHOP-9"},"launched_at":"2026-10-17T12:00:00"}`)
+	write("wk_cd34.json", `{"agent":{"name":"wk_cd34","workspace_id":"w3","worktree":"`+worker+`"},"task":{"ref":"ESHOP-9#A"},"launched_at":"2026-10-16T12:00:00"}`)
+	write("wk_ef56.json", `{"agent":{"name":"wk_ef56","workspace_id":"w3","worktree":"`+worker+`"},"task":{"ref":"ESHOP-9#B"},"launched_at":"2026-10-17T09:00:00"}`)
 	write("es-1270.json", `{"agent":{"name":"es-1270","workspace_id":"w2","worktree":"`+taskDir+`"},"task":{"ref":"ESHOP-1270"}}`)
 	write("legacy.json", `{"agent":{"name":"legacy","worktree":"`+worker+`"},"task":{"ref":"LEGACY-1"}}`)
 	write("broken.json", `{`)
@@ -42,6 +48,11 @@ func TestHarnessFor(t *testing.T) {
 	}
 	if name, ref := harnessFor("w2", taskDir); name != "es-1270" || ref != "ESHOP-1270" {
 		t.Errorf("coordinator (non-git task dir): got %q %q", name, ref)
+	}
+	// Shared workspace: a worker beats the coordinator even when the
+	// coordinator launched later; the latest worker wins among workers.
+	if name, ref := harnessFor("w3", worker); name != "wk_ef56" || ref != "ESHOP-9#B" {
+		t.Errorf("shared workspace: got %q %q", name, ref)
 	}
 	// The workspace match does not need the path: the agent's pane may have
 	// moved to another directory since the record was written.
