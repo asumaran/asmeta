@@ -1,3 +1,7 @@
+## v0.5.0 (2026-10-17)
+
+* feat(harness): deterministic record pick in shared workspaces (8e04335)
+
 ## v0.4.1 (2026-10-17)
 
 * fix(sidebar): lowercase issue#/pr# token prefixes (349d69c)
