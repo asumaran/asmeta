@@ -1,3 +1,7 @@
+## v0.5.1 (2026-10-20)
+
+* fix(sidebar): drop stale PR tag on main checkouts (4f03939)
+
 ## v0.5.0 (2026-10-17)
 
 * feat(harness): deterministic record pick in shared workspaces (8e04335)
