@@ -95,6 +95,22 @@ func TestTokensForAndReportArgs(t *testing.T) {
 		t.Errorf("args =\n%s\nwant\n%s", args, wantArgs)
 	}
 
+	parked := tokensFor(&workspace{id: "w4", label: "martech-dashboard", path: "/x", linked: false,
+		branch: "claude/devbox-readme", prNum: "6422", prLabel: "pr#6422 merged", prState: "merged"}, aiPlan{})
+	if parked["pr"] != "" || parked["pr_state"] != "" || parked["title"] != "martech-dashboard" {
+		t.Errorf("a main checkout parked on a merged PR's branch shows no PR: %v", parked)
+	}
+	open := tokensFor(&workspace{id: "w5", label: "repo", path: "/x", linked: false,
+		branch: "feat/x", prNum: "7", prLabel: "pr#7 draft", prState: "draft"}, aiPlan{})
+	if open["pr"] != "pr#7 draft" || open["pr_state"] != "draft" {
+		t.Errorf("a main checkout keeps an open or draft PR: %v", open)
+	}
+	linkedMerged := tokensFor(&workspace{id: "w6", label: "wt", path: "/x", linked: true,
+		branch: "feat/y", prNum: "8", prLabel: "pr#8 merged", prState: "merged", prTitle: "feat: y"}, aiPlan{})
+	if linkedMerged["pr"] != "pr#8 merged" || linkedMerged["pr_state"] != "merged" {
+		t.Errorf("a linked worktree keeps its merged PR: %v", linkedMerged)
+	}
+
 	bare := tokensFor(&workspace{id: "w2", label: "scratch"}, aiPlan{})
 	if got := strings.Join(reportArgs("w2", bare), " "); got != "workspace report-metadata w2 --source asumaran.asmeta"+
 		" --token title=scratch --clear-token desc --clear-token ticket --clear-token parent"+
@@ -107,6 +123,37 @@ func TestTokensForAndReportArgs(t *testing.T) {
 		harness: "es-1270", harnessRef: "ESHOP-1270"}, aiPlan{})
 	if coord["harness"] != "es-1270" || coord["harness_ref"] != "ESHOP-1270" || coord["title"] != "task: ESHOP-1270" {
 		t.Errorf("coordinator without checkout: %v", coord)
+	}
+}
+
+func TestIdentityOf(t *testing.T) {
+	cases := []struct {
+		w    *workspace
+		want string
+	}{
+		{&workspace{path: "/repo", branch: "feat/x"}, "/repo\nfeat/x"},
+		// No branch (a coordinator space, a non-git cwd): no trailing
+		// newline, so it matches what readText gives back after writeText.
+		{&workspace{cwd: "/work/KEY"}, "/work/KEY"},
+		// A branch switch in the same checkout changes the identity.
+		{&workspace{path: "/repo", branch: "main"}, "/repo\nmain"},
+	}
+	for _, c := range cases {
+		if got := identityOf(c.w); got != c.want {
+			t.Errorf("identityOf(%+v) = %q, want %q", c.w, got, c.want)
+		}
+	}
+	dir := t.TempDir()
+	stateDir = dir
+	w := &workspace{id: "wid", path: "/repo", branch: "feat/x"}
+	os.MkdirAll(dir+"/identity", 0o755)
+	writeText(identityFile(w.id), identityOf(w))
+	if readText(identityFile(w.id)) != identityOf(w) {
+		t.Error("a written identity must read back equal")
+	}
+	w.branch = "main"
+	if readText(identityFile(w.id)) == identityOf(w) {
+		t.Error("a branch switch must change the identity")
 	}
 }
 

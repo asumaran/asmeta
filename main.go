@@ -10,7 +10,8 @@
 // Tokens: $title (row 1: the descriptor on a linked worktree, the task
 // title on an aswork coordinator space (taskdir.go), the workspace
 // label elsewhere), $desc (the descriptor alone, what asgoto searches),
-// $ticket, $parent, $pr ("pr#123 draft", kept for sorting), $pr_state (draft,
+// $ticket, $parent, $pr ("pr#123 draft", kept for sorting; a main checkout
+// only shows it while the PR is open or draft), $pr_state (draft,
 // merged or closed), $ref (a coordinator space's deliverables summary; a git
 // branch is herdr's own `branch` token, which follows the pane's cwd on its
 // own and so never goes stale), and $harness /
@@ -42,8 +43,9 @@
 // the refresh then corrects whatever changed while the server was down.
 // A created workspace likewise publishes a provisional set (label, branch,
 // harness) before any network work. Focus events are throttled, except when
-// the pane moved to another checkout since the last publish (identity/<id>):
-// herdr emits no event for a cd, so the next focus must correct the title.
+// the pane moved to another checkout or branch since the last publish
+// (identity/<id>): herdr emits no event for a cd or a git checkout, so the
+// next focus must correct the tokens.
 //
 // After reporting, the linked worktrees of each repo are reordered in the
 // sidebar (regroup.go). ASMETA_REGROUP=0 disables it. Focus and rename events
@@ -383,9 +385,18 @@ func tokensFor(w *workspace, p aiPlan) map[string]string {
 		// Jira KEY, so inherit the Issue#n its task shows (taskdir.go).
 		ticket = issueTicketForRef(w.harnessRef)
 	}
+	pr, prState := w.prLabel, w.prState
+	if !w.linked && (prState == "merged" || prState == "closed") {
+		// The main checkout parked on a branch whose PR is already merged or
+		// closed: that PR is history, not what the space is about. The row
+		// reads as herdr renders it on its own (branch, git status). A linked
+		// worktree keeps it: the worktree exists for that PR, and "merged"
+		// marks it ready to clean up.
+		pr, prState = "", ""
+	}
 	return map[string]string{
 		"title": title, "desc": desc, "ticket": ticket, "parent": parent,
-		"pr": w.prLabel, "pr_state": w.prState,
+		"pr": pr, "pr_state": prState,
 		"harness": w.harness, "harness_ref": w.harnessRef,
 	}
 }
@@ -408,12 +419,17 @@ func publishedCache(id string) string {
 	return filepath.Join(stateDir, "published", id+".json")
 }
 
-// identityFile is where the checkout (or cwd) the last published tokens were
-// computed from lives. The focus throttle is skipped when it no longer
-// matches: a space whose pane moved to another checkout must not keep the old
-// title for two minutes.
+// identityFile is where the checkout (or cwd) and branch the last published
+// tokens were computed from live. The focus throttle is skipped when it no
+// longer matches: a space whose pane moved to another checkout, or whose
+// checkout switched branch, must not keep the old tokens for two minutes.
 func identityFile(id string) string {
 	return filepath.Join(stateDir, "identity", id)
+}
+
+// identityOf is what identityFile records for a workspace.
+func identityOf(w *workspace) string {
+	return chomp(orDefault(w.path, w.cwd) + "\n" + w.branch)
 }
 
 // maybeRename carries a controlled space's title into herdr's own label. The
@@ -443,7 +459,7 @@ func publish(w *workspace, p aiPlan) {
 	}
 	maybeRename(w, tokens["title"])
 	writeJSONFile(publishedCache(w.id), tokens)
-	writeText(identityFile(w.id), orDefault(w.path, w.cwd))
+	writeText(identityFile(w.id), identityOf(w))
 	if w.path == "" {
 		return
 	}
@@ -610,10 +626,11 @@ func run(argv []string) int {
 		if event == "workspace.focused" && !force {
 			if age, ok := fileAge(filepath.Join(stateDir, "last", id)); ok && age < focusThrottle {
 				// The throttle protects gh and Jira, not a moved space: when
-				// the pane now sits in another checkout than the one the
-				// published tokens came from, refresh on this focus anyway.
+				// the pane now sits in another checkout, or the checkout on
+				// another branch, than the published tokens came from,
+				// refresh on this focus anyway.
 				w := locate(list, id)
-				if orDefault(w.path, w.cwd) == readText(identityFile(id)) {
+				if identityOf(w) == readText(identityFile(id)) {
 					ids = nil
 				}
 			}
