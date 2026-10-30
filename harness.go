@@ -8,6 +8,13 @@ package main
 // never bleeds into another space sitting in the same checkout. Only a
 // record without a workspace (an agent launched outside herdr) matches by
 // checkout path.
+//
+// A record outlives its agent: nothing retires it when the pane closes or
+// another Claude takes the pane over (the harness archives records on
+// /aw:close, not on exit). So a record naming a workspace counts only while
+// herdr still lists an agent with that name; herdr clears a name when its
+// agent exits, so the live names are the truth. When herdr cannot be read
+// every record counts, as before.
 
 import (
 	"encoding/json"
@@ -40,6 +47,14 @@ type lineageRecord struct {
 // reads them at most once. nil means not loaded yet.
 var lineageRecords []lineageRecord
 
+// liveAgents is the set of agent names herdr lists, read once per run with
+// the records; nil when herdr could not be read (then no record is dropped).
+// Tests set both before calling harnessFor.
+var (
+	liveAgents     map[string]bool
+	liveAgentsRead bool
+)
+
 // harnessFor is the worker name and task ref of the lineage record whose
 // agent sits in the workspace wsID (or, for a record that does not name a
 // workspace, whose agent.worktree is dir); both "" when no record matches
@@ -51,6 +66,9 @@ var lineageRecords []lineageRecord
 // handle count as workers.
 func harnessFor(wsID, dir string) (name, ref string) {
 	if lineageRecords == nil {
+		if !liveAgentsRead {
+			liveAgents, liveAgentsRead = loadLiveAgents(), true
+		}
 		lineageRecords = loadLineage()
 	}
 	if r := pickRecord(func(r lineageRecord) bool {
@@ -97,8 +115,35 @@ func betterRecord(a, b lineageRecord) bool {
 	return a.name < b.name
 }
 
+// loadLiveAgents is the set of names of the agents herdr lists right now
+// (unnamed agents add nothing); nil when herdr did not answer.
+func loadLiveAgents() map[string]bool {
+	out, err := herdrRun("agent", "list")
+	if err != nil {
+		return nil
+	}
+	var l struct {
+		Result struct {
+			Agents []struct {
+				Name string `json:"name"`
+			} `json:"agents"`
+		} `json:"result"`
+	}
+	if json.Unmarshal(out, &l) != nil {
+		return nil
+	}
+	names := map[string]bool{}
+	for _, a := range l.Result.Agents {
+		if a.Name != "" {
+			names[a.Name] = true
+		}
+	}
+	return names
+}
+
 // loadLineage reads every top-level lineage record. The glob skips archive/
-// and the .lock files by shape.
+// and the .lock files by shape. A record naming a workspace whose agent
+// herdr no longer lists is stale and skipped (see the file comment).
 func loadLineage() []lineageRecord {
 	recs := []lineageRecord{}
 	paths, _ := filepath.Glob(filepath.Join(lineageDir, "*.json"))
@@ -122,6 +167,9 @@ func loadLineage() []lineageRecord {
 			continue
 		}
 		if rec.Agent.WorkspaceID == "" && rec.Agent.Worktree == "" {
+			continue
+		}
+		if rec.Agent.WorkspaceID != "" && liveAgents != nil && !liveAgents[rec.Agent.Name] {
 			continue
 		}
 		worktree := ""
