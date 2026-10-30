@@ -1,3 +1,8 @@
+## v0.6.1 (2026-10-30)
+
+* fix(sidebar): give back labels asmeta set (7441e95)
+* fix(harness): ignore lineage records of gone agents (b762241)
+
 ## v0.6.0 (2026-10-29)
 
 * feat(prs): per-account graphql refresh (2f3d949)
