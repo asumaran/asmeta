@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -212,5 +213,76 @@ func TestRegroupPlan(t *testing.T) {
 	want := []string{"/r/front/.git\tc d b a\tother", "/r/lone/.git\th g\t"}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("plan =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// The label asmeta gives a space it controls is given back when the space
+// stops being its own (its pane moved to another checkout), and only then:
+// a label the user typed since stays.
+func TestMaybeRenameAndReleaseLabel(t *testing.T) {
+	stateDir = t.TempDir()
+	log := filepath.Join(t.TempDir(), "log")
+	herdrScript(t, `echo "$@" >> `+log)
+	renames := func() string {
+		data, _ := os.ReadFile(log)
+		os.Remove(log)
+		return chomp(string(data))
+	}
+
+	w := &workspace{id: "wEV", label: "feat-92-ui-polish", path: "/wt/convokia/feat-92-ui-polish", linked: true}
+	maybeRename(w, "Pulido de UI con shadcn/ui")
+	if got := renames(); got != "workspace rename wEV Pulido de UI con shadcn/ui" {
+		t.Errorf("a linked worktree takes its title as label: %q", got)
+	}
+	if w.label != "Pulido de UI con shadcn/ui" || readText(renamedFile("wEV")) != "Pulido de UI con shadcn/ui" {
+		t.Errorf("the label set is remembered: label %q, file %q", w.label, readText(renamedFile("wEV")))
+	}
+	maybeRename(w, "Pulido de UI con shadcn/ui")
+	if got := renames(); got != "" {
+		t.Errorf("a label that already matches is left alone: %q", got)
+	}
+	releaseLabel(w)
+	if got := renames(); got != "" {
+		t.Errorf("a space still controlled keeps its label: %q", got)
+	}
+
+	// The pane cd'd to a main checkout: the space is that checkout's now.
+	w.path, w.linked = "/Developer/asgotoissues", false
+	releaseLabel(w)
+	if got := renames(); got != "workspace rename wEV asgotoissues" {
+		t.Errorf("a released space gets herdr's own label back: %q", got)
+	}
+	if w.label != "asgotoissues" || readText(renamedFile("wEV")) != "" {
+		t.Errorf("after the release: label %q, file %q", w.label, readText(renamedFile("wEV")))
+	}
+	releaseLabel(w)
+	if got := renames(); got != "" {
+		t.Errorf("released once: %q", got)
+	}
+
+	// A label typed by hand since is the user's.
+	hand := &workspace{id: "w2", label: "wt", path: "/wt/a", linked: true}
+	maybeRename(hand, "a title")
+	renames()
+	hand.label, hand.path, hand.linked = "mine", "/Developer/b", false
+	releaseLabel(hand)
+	if got := renames(); got != "" || hand.label != "mine" || readText(renamedFile("w2")) != "" {
+		t.Errorf("a hand-typed label stays: %q, label %q, file %q", got, hand.label, readText(renamedFile("w2")))
+	}
+
+	// A space asmeta never renamed is never touched, stale label or not.
+	other := &workspace{id: "w3", label: "whatever", path: "/Developer/c"}
+	releaseLabel(other)
+	if got := renames(); got != "" {
+		t.Errorf("never renamed, never released: %q", got)
+	}
+
+	// Herdr's own label is the folder; a space with nowhere to sit keeps its name.
+	nowhere := &workspace{id: "w4", label: "t", linked: true}
+	maybeRename(nowhere, "t")
+	nowhere.linked = false
+	releaseLabel(nowhere)
+	if got := renames(); got != "" {
+		t.Errorf("no checkout, no folder to name it after: %q", got)
 	}
 }

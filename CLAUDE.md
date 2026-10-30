@@ -67,8 +67,9 @@ out by `statedir.go` when run by hand): `ai/<key>` (descriptor),
 `ai/<key>.fail` (cooldown marker), `parents/`, `summaries/`, `descriptions/`
 (Jira, per ticket), `queue/<workspace id>`, `last/<workspace id>` (focus
 throttle), `published/<workspace id>.json` (last published token set, replayed
-on startup before any network work), `ai.flock`, `prs.json` and `prs.lock`
-(the shared PR cache). The layout is the bash plugin's; do not rename files
+on startup before any network work), `renamed/<workspace id>` (the label
+asmeta gave a space it controls, given back when it stops controlling it),
+`ai.flock`, `prs.json` and `prs.lock` (the shared PR cache). The layout is the bash plugin's; do not rename files
 without a migration, or every descriptor is generated again.
 
 ## Behaviour that is not obvious

@@ -21,7 +21,11 @@
 // The spaces whose title asmeta owns (a linked worktree, an aswork task
 // space) also get it as their herdr label (workspace rename), so the
 // sidebar's native workspace token shows it. Every other space keeps herdr's
-// automatic label, which follows the pane's cwd on its own.
+// automatic label, which follows the pane's cwd on its own. A label asmeta
+// set is remembered (renamed/<workspace id>) and given back when the space
+// stops being one of those: herdr never takes a renamed label back on its
+// own, so a space created from a linked worktree's pane and then moved to
+// another checkout would keep that worktree's title for good.
 //
 // Sources: branch name (ticket key), the shared PR cache (prs.json, which this
 // plugin writes with one GitHub query for every workspace: prfetch.go,
@@ -432,26 +436,74 @@ func identityOf(w *workspace) string {
 	return chomp(orDefault(w.path, w.cwd) + "\n" + w.branch)
 }
 
+// controlled says whether asmeta owns a space's title, and so its label: a
+// linked worktree, or an aswork task space.
+func controlled(w *workspace) bool {
+	return w.linked || (w.path == "" && taskInfoFor(w.cwd) != nil)
+}
+
+// renamedFile is where the label asmeta gave a workspace lives while it owns
+// it. It tells a label asmeta set from one the user typed, when the space
+// stops being asmeta's (releaseLabel).
+func renamedFile(id string) string {
+	return filepath.Join(stateDir, "renamed", id)
+}
+
 // maybeRename carries a controlled space's title into herdr's own label. The
 // sidebar's first row is the native workspace token, which herdr keeps in
 // sync with the pane's cwd on its own; asmeta only overrides it on the spaces
 // whose title it owns (a linked worktree, an aswork task space) and never
 // touches the rest. A label that already matches is left alone: renaming it
-// again would cycle through the workspace.renamed hook.
+// again would cycle through the workspace.renamed hook. The label it set is
+// remembered, so releaseLabel can give it back later.
 func maybeRename(w *workspace, title string) {
-	controlled := w.linked || (w.path == "" && taskInfoFor(w.cwd) != nil)
-	if !controlled || title == "" || title == w.label {
+	if !controlled(w) || title == "" {
 		return
 	}
-	if err := herdrDo("workspace", "rename", w.id, title); err != nil {
-		logf("rename failed for %s: %v", w.id, err)
+	if title != w.label {
+		if err := herdrDo("workspace", "rename", w.id, title); err != nil {
+			logf("rename failed for %s: %v", w.id, err)
+			return
+		}
+		w.label = title
 	}
+	writeText(renamedFile(w.id), title)
+}
+
+// releaseLabel gives a space asmeta no longer controls its own label back.
+// A workspace created from a linked worktree's pane is that worktree's
+// (herdr starts it in the pane's cwd) and gets its title as a label; when
+// the pane then moves to another checkout (herdr emits no event for a cd,
+// the next focus catches it through identity/<id>) the space is no longer
+// asmeta's, and herdr does not take a renamed label back on its own: without
+// this it would keep the other worktree's title for good. Only the label
+// asmeta set goes back (a label typed by hand since is the user's), to
+// herdr's own, the folder of the checkout the pane sits in. It runs before
+// the tokens are built, so the title token says the same.
+func releaseLabel(w *workspace) {
+	if controlled(w) {
+		return
+	}
+	own := readText(renamedFile(w.id))
+	if own == "" {
+		return
+	}
+	natural := filepath.Base(orDefault(w.path, w.cwd))
+	if w.label == own && natural != "." && natural != "/" && natural != w.label {
+		if err := herdrDo("workspace", "rename", w.id, natural); err != nil {
+			logf("rename failed for %s: %v", w.id, err)
+			return
+		}
+		w.label = natural
+	}
+	os.Remove(renamedFile(w.id))
 }
 
 // publish reports the workspace's tokens, with the cached descriptor of p,
 // and keeps what it said on disk so the next server start replays it at once
 // (herdr does not persist tokens across a restart).
 func publish(w *workspace, p aiPlan) {
+	releaseLabel(w)
 	tokens := tokensFor(w, p)
 	if err := herdrDo(reportArgs(w.id, tokens)...); err != nil {
 		logf("report-metadata failed for %s: %v", w.id, err)
