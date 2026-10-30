@@ -1,3 +1,7 @@
+## v0.6.0 (2026-10-29)
+
+* feat(prs): per-account graphql refresh (2f3d949)
+
 ## v0.5.1 (2026-10-20)
 
 * fix(sidebar): drop stale PR tag on main checkouts (4f03939)
