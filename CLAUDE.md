@@ -27,13 +27,20 @@ cache keys and prompt), checked by running both against the same session.
 - `prfetch.go`: the writer of the shared PR cache (`prs.json`, format and
   merge in the shared `prshare.go`): `collectPairs` (origin, upstream for a
   fork, branch of every workspace), `prQuery` (one aliased GraphQL query,
-  values as variables, up to 100 branches), `fetchPRs` (partial answers per
-  repo, the newest open PR of our head), `refreshPRs` (flock on `prs.lock`, a
-  request covered by a later query does not query again, backoff after a rate
-  limit, returns the workspaces whose PR changed so they are published
-  again). Triggers: startup, created, opened and renamed always query; focus
-  only when a branch is missing or older than the focus throttle; `--force`
-  and `--prs` (the `refresh-prs` action asgoto invokes) always.
+  values as variables, up to 100 branches), `fetchPRs` (pairs grouped per gh
+  account by the org→account map, one query per account with that account's
+  token, partial answers per repo, the newest open PR of our head, actionable
+  logs for a skipped account or an inaccessible repo), `refreshPRs` (flock on
+  `prs.lock`, a request covered by a later query does not query again,
+  per-account backoff after a rate limit, returns the workspaces whose PR
+  changed so they are published again). Triggers: startup, created, opened
+  and renamed always query; focus only when a branch is missing or older than
+  the focus throttle; `--force` and `--prs` (the `refresh-prs` action asgoto
+  invokes) always.
+- `ghaccounts.go`: the org→account map (`~/.config/gh-accounts`, override
+  `GH_ACCOUNTS_MAP`; spec frozen with asreviewer): `loadGHAccounts` (absent =
+  silent nil map, unreadable = logged once per refresh), `accountFor`, and
+  `ghAuthToken` (`gh auth token -u`, 10s timeout, injectable package var).
 - `jira.go`: one ticket's parent, summary and description, cached as plain
   text in `parents/`, `summaries/`, `descriptions/` of the state dir.
 - `ai.go`: the descriptor: `planAI` (cache key and prompt), `cleanDescriptor`,
@@ -71,6 +78,10 @@ without a migration, or every descriptor is generated again.
   when the prompt changes. With `ASMETA_LANG` unset the prompt and the key are
   the bash plugin's; another language adds `lang=` to the basis.
 - PR state comes normalized from `prs.json`: `draft` only while open.
+- Without `~/.config/gh-accounts` every query runs token-less as the active
+  gh account (the pre-map behavior). The map's `default` answers for unlisted
+  orgs; an org that resolves to no account also runs token-less. Tokens are
+  resolved once per account per refresh, never cached across refreshes.
 - Branches `main`, `master`, `develop` and a detached head never look a PR up.
 - Focus events are throttled per workspace (`last/`); focus and rename never
   regroup.

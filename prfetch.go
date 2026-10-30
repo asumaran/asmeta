@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -138,9 +139,10 @@ func contains(ss []string, s string) bool {
 	return false
 }
 
-// ghGraphQL runs one query. gh exits non-zero when the answer carries
+// ghGraphQL runs one query, as token's account when token is not empty (it
+// overrides any ambient GH_TOKEN). gh exits non-zero when the answer carries
 // errors, but still prints the data it got, so stdout is returned either way.
-var ghGraphQL = func(ctx context.Context, query string, vars map[string]string) (stdout []byte, stderr string, err error) {
+var ghGraphQL = func(ctx context.Context, query string, vars map[string]string, token string) (stdout []byte, stderr string, err error) {
 	args := []string{"api", "graphql", "-f", "query=" + query}
 	keys := make([]string, 0, len(vars))
 	for k := range vars {
@@ -151,6 +153,9 @@ var ghGraphQL = func(ctx context.Context, query string, vars map[string]string) 
 		args = append(args, "-f", k+"="+vars[k])
 	}
 	cmd := exec.CommandContext(ctx, "gh", args...)
+	if token != "" {
+		cmd.Env = append(os.Environ(), "GH_TOKEN="+token)
+	}
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	err = cmd.Run()
@@ -159,8 +164,15 @@ var ghGraphQL = func(ctx context.Context, query string, vars map[string]string) 
 
 // prResult is what one refresh learned.
 type prResult struct {
-	checks      map[string]sharedPRCheck // by head repo
-	ok          bool                     // some repo answered
+	checks map[string]sharedPRCheck // by head repo
+	// accounts has an entry per account whose group actually queried;
+	// groups skipped by a backoff or a missing token leave none.
+	accounts map[string]prAccountResult
+}
+
+// prAccountResult is how one account's queries went.
+type prAccountResult struct {
+	ok          bool // some repo answered
 	rateLimited bool
 }
 
@@ -182,16 +194,86 @@ func pick(p prPair, nodes []prNode) *prNode {
 	return first
 }
 
-// fetchPRs looks every pair up, prChunk pairs per query. A repo whose alias
-// came back with an error is left out of the result, so its cached entries
-// stay as they were.
-func fetchPRs(pairs []prPair) prResult {
-	res := prResult{checks: map[string]sharedPRCheck{}}
+// groupPairsByAccount splits pairs by the account that sees each pair's base
+// org (the segment before "/"). Key "" is the group with no mapped account
+// (no map, or no default): it queries as the active account, token-less.
+// order is sorted so refreshes and tests are deterministic.
+func groupPairsByAccount(pairs []prPair, orgs map[string]string, def string) (groups map[string][]prPair, order []string) {
+	groups = map[string][]prPair{}
+	for _, p := range pairs {
+		org, _, _ := strings.Cut(p.base, "/")
+		account := accountFor(orgs, def, org)
+		if _, ok := groups[account]; !ok {
+			order = append(order, account)
+		}
+		groups[account] = append(groups[account], p)
+	}
+	sort.Strings(order)
+	return groups, order
+}
+
+// accountTag names an account in a log line; the token-less group has none.
+func accountTag(account string) string {
+	if account == "" {
+		return ""
+	}
+	return fmt.Sprintf(" (account %s)", account)
+}
+
+// baseList is the deduplicated base repos of pairs, sorted, for log lines.
+func baseList(pairs []prPair) string {
+	seen := map[string]bool{}
+	var bases []string
+	for _, p := range pairs {
+		if !seen[p.base] {
+			seen[p.base] = true
+			bases = append(bases, p.base)
+		}
+	}
+	sort.Strings(bases)
+	return strings.Join(bases, ", ")
+}
+
+// fetchPRs looks every pair up: pairs grouped by account (the shared
+// org→account map), one token per account per refresh, prChunk pairs per
+// query. A group whose account is in backoff or has no token is skipped with
+// a log line; a skipped or failed repo is left out of the result, so its
+// cached entries stay as they were.
+func fetchPRs(pairs []prPair, backoff map[string]time.Time) prResult {
+	res := prResult{checks: map[string]sharedPRCheck{}, accounts: map[string]prAccountResult{}}
+	orgs, def := loadGHAccounts()
+	groups, order := groupPairsByAccount(pairs, orgs, def)
+	for _, account := range order {
+		group := groups[account]
+		if until, ok := backoff[account]; ok && time.Now().Before(until) {
+			logf("pr refresh%s: rate-limit backoff until %s; skipped %s",
+				accountTag(account), until.Format(time.RFC3339), baseList(group))
+			continue
+		}
+		token := ""
+		if account != "" {
+			tok, err := ghAuthToken(context.Background(), account)
+			if err != nil {
+				logf("pr refresh: %v; skipped %s", err, baseList(group))
+				continue
+			}
+			token = tok
+		}
+		res.accounts[account] = fetchGroup(account, token, group, res.checks)
+	}
+	return res
+}
+
+// fetchGroup runs one account's queries, accumulating into checks (a head
+// repo seen by two groups accumulates branches, never replaces them).
+func fetchGroup(account, token string, pairs []prPair, checks map[string]sharedPRCheck) prAccountResult {
+	var ar prAccountResult
+	noAccess := map[string]bool{}
 	for start := 0; start < len(pairs); start += prChunk {
 		chunk := pairs[start:min(start+prChunk, len(pairs))]
 		query, vars, alias := prQuery(chunk)
 		ctx, cancel := context.WithTimeout(context.Background(), prQueryTimeout)
-		out, stderr, err := ghGraphQL(ctx, query, vars)
+		out, stderr, err := ghGraphQL(ctx, query, vars, token)
 		cancel()
 		var resp struct {
 			Data   map[string]map[string]*struct{ Nodes []prNode } `json:"data"`
@@ -202,35 +284,38 @@ func fetchPRs(pairs []prPair) prResult {
 		}
 		if jerr := json.Unmarshal(out, &resp); jerr != nil || resp.Data == nil {
 			if strings.Contains(strings.ToLower(stderr), "rate limit") {
-				res.rateLimited = true
+				ar.rateLimited = true
 			}
-			logf("pr query failed: %s", orDefault(strings.TrimSpace(firstLineOf(stderr)), fmt.Sprint(err)))
+			logf("pr query failed%s: %s", accountTag(account),
+				orDefault(strings.TrimSpace(firstLineOf(stderr)), fmt.Sprint(err)))
 			continue
 		}
 		for _, e := range resp.Errors {
 			if e.Type == "RATE_LIMITED" {
-				res.rateLimited = true
+				ar.rateLimited = true
 			}
 		}
 		for key, ab := range alias {
 			r, b, _ := strings.Cut(key, ".")
 			repo := resp.Data[r]
 			if repo == nil {
-				continue // this repo failed (gone, no access): keep what was cached
+				// this repo failed (gone, no access): keep what was cached
+				noAccess[ab[0]] = true
+				continue
 			}
 			conn := repo[b]
 			if conn == nil {
 				continue
 			}
-			res.ok = true
+			ar.ok = true
 			for _, p := range chunk {
 				if p.base != ab[0] || p.branch != ab[1] {
 					continue
 				}
-				c, ok := res.checks[p.head]
+				c, ok := checks[p.head]
 				if !ok {
 					c = sharedPRCheck{Branches: map[string]string{}, Pulls: map[string]sharedPR{}}
-					res.checks[p.head] = c
+					checks[p.head] = c
 				}
 				n := pick(p, conn.Nodes)
 				if n == nil {
@@ -246,7 +331,16 @@ func fetchPRs(pairs []prPair) prResult {
 			}
 		}
 	}
-	return res
+	if len(noAccess) > 0 {
+		var bases []string
+		for b := range noAccess {
+			bases = append(bases, b)
+		}
+		sort.Strings(bases)
+		logf("pr refresh%s: no access to %s; cached entries kept",
+			accountTag(account), strings.Join(bases, ", "))
+	}
+	return ar
 }
 
 func firstLineOf(s string) string {
@@ -294,23 +388,35 @@ func refreshPRs(list wsList, mode refreshMode) []string {
 	if cur.LastQueryStartedAt.After(requested) {
 		return nil // another refresh queried after this request; it republished what changed
 	}
-	if mode != refreshForced && cur.BackoffUntil != nil && requested.Before(*cur.BackoffUntil) {
-		return nil
+	var backoff map[string]time.Time
+	if mode != refreshForced {
+		backoff = cur.AccountBackoff
 	}
 	before := map[string]string{}
 	for _, p := range pairs {
 		before[p.head+"\x00"+p.branch] = prFacts(cur, p)
 	}
-	cur.LastQueryStartedAt = time.Now()
-	res := fetchPRs(pairs)
+	queryStarted := time.Now()
+	res := fetchPRs(pairs, backoff)
+	if len(res.accounts) == 0 {
+		return nil // every group skipped (backoff, no token): nothing queried
+	}
+	cur.LastQueryStartedAt = queryStarted
 	now := time.Now()
 	cur.merge(res.checks, now)
-	switch {
-	case res.rateLimited:
-		b := now.Add(prBackoff)
-		cur.BackoffUntil = &b
-	case res.ok:
-		cur.BackoffUntil = nil
+	for account, ar := range res.accounts {
+		switch {
+		case ar.rateLimited:
+			if cur.AccountBackoff == nil {
+				cur.AccountBackoff = map[string]time.Time{}
+			}
+			cur.AccountBackoff[account] = now.Add(prBackoff)
+		case ar.ok:
+			delete(cur.AccountBackoff, account)
+		}
+	}
+	if len(cur.AccountBackoff) == 0 {
+		cur.AccountBackoff = nil
 	}
 	if err := cur.save(); err != nil {
 		logf("%v", err)

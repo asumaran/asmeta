@@ -40,6 +40,13 @@ asgotoissues and asgotopr read that file, so the sidebar and the pickers show
 the same PRs in the same state. A checkout whose `origin` is a fork finds its
 PRs in the `upstream` remote.
 
+With more than one `gh` account, `~/.config/gh-accounts` (one `<org> <account>`
+line per org, `default` for the rest; `GH_ACCOUNTS_MAP` points elsewhere) maps
+each org to the account that sees it: the refresh runs one query per account
+with that account's token (`gh auth token -u`), so the active account no
+longer decides what the sidebar sees. Without the file, everything runs as the
+active account, as before. A rate limit backs off only its own account.
+
 To show the tokens, reference them in the sidebar rows of
 `~/.config/herdr/config.toml`: `$title`, `$desc`, `$ticket`, `$parent`, `$pr`,
 `$pr_state` and `$ref`.
