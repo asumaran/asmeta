@@ -8,7 +8,7 @@ Guidance for working in this repository.
 startup, `workspace.created`, `worktree.opened`, `workspace.focused`,
 `workspace.renamed`) and actions, and it reports Space sidebar tokens for each
 workspace (`$title`, `$desc`, `$ticket`, `$parent`, `$pr`, `$pr_state`,
-`$ref`), then sorts each repo's linked worktrees by parent ticket, ticket and
+`$ref`, `$gone`), then sorts each repo's linked worktrees by parent ticket, ticket and
 PR. It is part of the `as` family of herdr plugins (asgoto, asgotopr,
 asgotoissues...); asgoto searches its `$desc` token.
 
@@ -86,6 +86,19 @@ without a migration, or every descriptor is generated again.
 - Branches `main`, `master`, `develop` and a detached head never look a PR up.
 - Focus events are throttled per workspace (`last/`); focus and rename never
   regroup.
+- A linked worktree whose checkout is gone (`os.IsNotExist` on the stat of
+  herdr's `checkout_path`) keeps its row: `gone.go` republishes the last
+  `published/<id>.json` plus `$gone=deleted`, with fresh harness IDs winning
+  when the lineage still names the space. Missing `ticket`/`pr`/`pr_state`
+  are recovered from local files only, one field at a time, never replacing a
+  kept value: the aswork task (`TASK.md` frontmatter only) whose deliverable
+  `repo` is the same path as herdr's `repo_root` and whose branch, with `/` as
+  `-`, is the checkout's directory name; else the one `prs.json` branch with
+  that directory name, whose PR is historical and not refreshed (a gone space
+  makes no pair, and the cache drops branches unchecked for 30 days). More
+  than one match recovers nothing. Any other stat failure keeps the last set
+  without `$gone`. Such a space still counts as controlled (label kept) and
+  still takes part in regroup with its recovered tokens.
 
 ## Build & run
 
@@ -93,7 +106,7 @@ without a migration, or every descriptor is generated again.
 go build -o asmeta .
 go vet ./... && go test ./...
 ./asmeta --all                   # every workspace of the running server
-HERDR_PLUGIN_STATE_DIR=/tmp/s ./asmeta <id>   # against a scratch state dir
+HERDR_PLUGIN_STATE_DIR=/tmp/s/asumaran.asmeta ./asmeta <id>   # scratch state dir (prs.json is a sibling of the state dir)
 ```
 
 Local dev: `herdr plugin link "$PWD"` and `go build -o asmeta .` (link does not

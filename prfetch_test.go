@@ -307,11 +307,7 @@ func TestRefreshPRs(t *testing.T) {
 	list := wsList{}
 	list.Result.Workspaces = []wsEntry{{ID: "w1", Label: "a"}, {ID: "w2", Label: "dup"}, {ID: "w3", Label: "b"}}
 	for i, dir := range []string{repo, repo, other} {
-		list.Result.Workspaces[i].Worktree = &struct {
-			CheckoutPath string `json:"checkout_path"`
-			IsLinked     bool   `json:"is_linked_worktree"`
-			RepoKey      string `json:"repo_key"`
-		}{CheckoutPath: dir, IsLinked: true}
+		list.Result.Workspaces[i].Worktree = &wsWorktree{CheckoutPath: dir, IsLinked: true}
 	}
 	stub := &ghStub{repos: map[string]map[string]string{
 		"me/a":       {"feat/x": prTen},

@@ -2,7 +2,7 @@ id = "asumaran.asmeta"
 name = "asmeta"
 version = "0.6.1"
 min_herdr_version = "0.9.0"
-description = "Report what each workspace is about as Space sidebar tokens: $title (#PR plus an AI descriptor, Claude Haiku, with PR title / Jira summary / label fallbacks), $desc, $ticket, $parent, $pr, $pr_state and $ref; sort each repo's worktrees by parent, ticket, PR"
+description = "Report what each workspace is about as Space sidebar tokens: $title (#PR plus an AI descriptor, Claude Haiku, with PR title / Jira summary / label fallbacks), $desc, $ticket, $parent, $pr, $pr_state, $ref and $gone (a deleted worktree keeps its row); sort each repo's worktrees by parent, ticket, PR"
 platforms = ["linux", "macos"]
 
 # Hybrid provisioning: download the prebuilt binary from the GitHub release

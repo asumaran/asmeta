@@ -32,22 +32,31 @@ var (
 	reTaskRepo     = regexp.MustCompile(`(?m)^    repo:[ \t]*(\S+)[ \t]*$`)
 )
 
+// taskFrontmatter is the frontmatter of the TASK.md at path, without the
+// "---" fences; false when the file is unreadable or has none.
+func taskFrontmatter(path string) (string, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil || !strings.HasPrefix(string(data), "---\n") {
+		return "", false
+	}
+	text := string(data)
+	end := strings.Index(text[4:], "\n---\n")
+	if end < 0 {
+		return "", false
+	}
+	return text[4 : 4+end+1], true
+}
+
 // taskInfoFor is the task whose directory is cwd, nil when cwd holds no
 // aswork TASK.md (then the caller falls back to the bare label).
 func taskInfoFor(cwd string) *taskInfo {
 	if cwd == "" {
 		return nil
 	}
-	data, err := os.ReadFile(filepath.Join(cwd, "TASK.md"))
-	if err != nil || !strings.HasPrefix(string(data), "---\n") {
+	front, ok := taskFrontmatter(filepath.Join(cwd, "TASK.md"))
+	if !ok {
 		return nil
 	}
-	text := string(data)
-	end := strings.Index(text[4:], "\n---\n")
-	if end < 0 {
-		return nil
-	}
-	front := text[4 : 4+end+1]
 	m := reTaskKey.FindStringSubmatch(front)
 	if m == nil {
 		return nil

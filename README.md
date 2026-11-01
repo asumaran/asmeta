@@ -49,7 +49,9 @@ active account, as before. A rate limit backs off only its own account.
 
 To show the tokens, reference them in the sidebar rows of
 `~/.config/herdr/config.toml`: `$title`, `$desc`, `$ticket`, `$parent`, `$pr`,
-`$pr_state` and `$ref`.
+`$pr_state`, `$ref` and `$gone` ("deleted" on a space whose linked worktree was
+removed; the rest of its row is kept as last published, with the ticket and PR
+recovered from local files when missing).
 
 ## Jira
 

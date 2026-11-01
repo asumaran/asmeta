@@ -91,7 +91,7 @@ func TestTokensForAndReportArgs(t *testing.T) {
 	wantArgs := "workspace report-metadata w1 --source asumaran.asmeta" +
 		" --token title=quitar euskera --token desc=quitar euskera --token ticket=ESHOP-2562" +
 		" --token parent=↳ ESHOP-2500 --token pr=pr#12 draft --token pr_state=draft --clear-token ref" +
-		" --token harness=es-2562-a --token harness_ref=ESHOP-2562#A"
+		" --token harness=es-2562-a --token harness_ref=ESHOP-2562#A --clear-token gone"
 	if args != wantArgs {
 		t.Errorf("args =\n%s\nwant\n%s", args, wantArgs)
 	}
@@ -116,7 +116,7 @@ func TestTokensForAndReportArgs(t *testing.T) {
 	if got := strings.Join(reportArgs("w2", bare), " "); got != "workspace report-metadata w2 --source asumaran.asmeta"+
 		" --token title=scratch --clear-token desc --clear-token ticket --clear-token parent"+
 		" --clear-token pr --clear-token pr_state --clear-token ref"+
-		" --clear-token harness --clear-token harness_ref" {
+		" --clear-token harness --clear-token harness_ref --clear-token gone" {
 		t.Errorf("no checkout: %s", got)
 	}
 

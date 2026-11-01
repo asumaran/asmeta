@@ -7,7 +7,8 @@
 //	--regen                drop the cached AI descriptor and generate it again
 //	--prs                  refresh the shared PR cache now and publish what changed
 //
-// Tokens: $title (row 1: the descriptor on a linked worktree, the task
+// Tokens: $gone ("deleted" on a space whose linked worktree was removed; the
+// rest of its row is kept, gone.go), $title (row 1: the descriptor on a linked worktree, the task
 // title on an aswork coordinator space (taskdir.go), the workspace
 // label elsewhere), $desc (the descriptor alone, what asgoto searches),
 // $ticket, $parent, $pr ("pr#123 draft", kept for sorting; a main checkout
@@ -145,11 +146,16 @@ type wsEntry struct {
 	ID       string            `json:"workspace_id"`
 	Label    string            `json:"label"`
 	Tokens   map[string]string `json:"tokens"`
-	Worktree *struct {
-		CheckoutPath string `json:"checkout_path"`
-		IsLinked     bool   `json:"is_linked_worktree"`
-		RepoKey      string `json:"repo_key"`
-	} `json:"worktree"`
+	Worktree *wsWorktree       `json:"worktree"`
+}
+
+// wsWorktree is the worktree block herdr keeps for a space, even after the
+// checkout directory is deleted.
+type wsWorktree struct {
+	CheckoutPath string `json:"checkout_path"`
+	IsLinked     bool   `json:"is_linked_worktree"`
+	RepoKey      string `json:"repo_key"`
+	RepoRoot     string `json:"repo_root"`
 }
 
 type wsList struct {
@@ -208,6 +214,12 @@ type workspace struct {
 	jiraDesc        string
 	harness         string
 	harnessRef      string
+	// gone: herdr still names a linked worktree whose checkout was deleted
+	// (gone.go); gonePath is that checkout, repoRoot its repo's main one.
+	// keep: the checkout could not be statted for another reason (a transient
+	// failure): the last published set is kept, without the gone marker.
+	gone, keep         bool
+	gonePath, repoRoot string
 }
 
 // collect works out one workspace of a `workspace list`: its checkout and
@@ -251,6 +263,7 @@ func locate(list wsList, id string) *workspace {
 	w.label = row.Label
 	if row.Worktree != nil {
 		w.path, w.linked = row.Worktree.CheckoutPath, row.Worktree.IsLinked
+		w.repoRoot = row.Worktree.RepoRoot
 	}
 	if w.path == "" {
 		// herdr reported no worktree metadata (the space predates its git
@@ -269,6 +282,13 @@ func locate(list wsList, id string) *workspace {
 		}
 	}
 	if fi, err := os.Stat(w.path); w.path == "" || err != nil || !fi.IsDir() {
+		if w.path != "" && w.linked && err != nil {
+			if os.IsNotExist(err) {
+				w.gone, w.gonePath = true, w.path
+			} else {
+				w.keep, w.gonePath = true, w.path
+			}
+		}
 		w.path = ""
 		return w
 	}
@@ -347,11 +367,14 @@ func describe(s string) string {
 
 // tokenNames is the order tokens are reported in. A token whose value is ""
 // is cleared; title is always set.
-var tokenNames = []string{"title", "desc", "ticket", "parent", "pr", "pr_state", "ref", "harness", "harness_ref"}
+var tokenNames = []string{"title", "desc", "ticket", "parent", "pr", "pr_state", "ref", "harness", "harness_ref", "gone"}
 
 // tokensFor is the token set a workspace publishes, with the cached
 // descriptor of p. A missing name reads as "".
 func tokensFor(w *workspace, p aiPlan) map[string]string {
+	if w.gone || w.keep {
+		return goneTokens(w)
+	}
 	if w.path == "" {
 		// No checkout: a coordinator space (the pane sits in an aswork task
 		// dir) renders the task; anything else keeps its name, plus the
