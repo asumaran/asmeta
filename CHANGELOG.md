@@ -1,3 +1,7 @@
+## v0.7.0 (2026-11-01)
+
+* feat(sidebar): keep a deleted worktree's row (77a2dad)
+
 ## v0.6.1 (2026-10-30)
 
 * fix(sidebar): give back labels asmeta set (7441e95)
