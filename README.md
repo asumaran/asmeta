@@ -2,7 +2,7 @@
 
 A herdr plugin with no pane: it fills the Space sidebar with what each
 workspace is about. Each space gets two rows: `#PR descriptor` on top, then
-the parent ticket, the ticket, the PR with its state and the branch. The PR
+the ticket, the PR with its state, the aswork harness name and the parent ticket. The PR
 reads `pr#123`, then its state (`draft`, `merged`, `closed`; for an open PR
 its review: `approved`, `changes requested`, `review`) and what stands in
 its way while open (`conflicts`, `ci failed`, `ci pending`), so a row says
