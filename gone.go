@@ -22,7 +22,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 )
 
@@ -87,10 +86,9 @@ func recoverGone(w *workspace, tokens map[string]string) {
 	if pr == nil {
 		return
 	}
-	label := "pr#" + strconv.Itoa(pr.Number)
-	if pr.State != "open" {
-		label += " " + pr.State
-		tokens["pr_state"] = pr.State
+	label, state := prDisplay(*pr)
+	if state != "" {
+		tokens["pr_state"] = state
 	}
 	tokens["pr"] = label
 }

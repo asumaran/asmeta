@@ -2,7 +2,13 @@
 
 A herdr plugin with no pane: it fills the Space sidebar with what each
 workspace is about. Each space gets two rows: `#PR descriptor` on top, then
-the parent ticket, the ticket, the PR state and the branch. Inside each repo,
+the parent ticket, the ticket, the PR with its state and the branch. The PR
+reads `pr#123`, then its state (`draft`, `merged`, `closed`; for an open PR
+its review: `approved`, `changes requested`, `review`) and what stands in
+its way while open (`conflicts`, `ci failed`, `ci pending`), so a row says
+`pr#123 approved` or `pr#123 review, ci failed`. A space whose branch
+has no PR but which an aswork worker names (`$harness_ref` = `KEY#ID`) shows
+the PR of that deliverable's branch, read from the task's `TASK.md`. Inside each repo,
 linked worktrees are sorted by parent ticket, ticket and PR number, so the
 subtasks of one parent end up next to each other.
 
@@ -48,8 +54,8 @@ longer decides what the sidebar sees. Without the file, everything runs as the
 active account, as before. A rate limit backs off only its own account.
 
 To show the tokens, reference them in the sidebar rows of
-`~/.config/herdr/config.toml`: `$title`, `$desc`, `$ticket`, `$parent`, `$pr`,
-`$pr_state`, `$ref` and `$gone` ("deleted" on a space whose linked worktree was
+`~/.config/herdr/config.toml`: `$title`, `$desc`, `$ticket`, `$parent`, `$pr` (the whole
+`pr#123 approved, ci failed`), `$pr_state` (the state word alone), `$ref` and `$gone` ("deleted" on a space whose linked worktree was
 removed; the rest of its row is kept as last published, with the ticket and PR
 recovered from local files when missing).
 

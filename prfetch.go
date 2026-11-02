@@ -36,11 +36,18 @@ type prPair struct {
 	ids                []string
 }
 
-// pairOf is the pair of a located workspace, false when it has none.
+// pairOf is the pair of a located workspace's own branch, false when it
+// has none.
 func pairOf(w *workspace) (prPair, bool) {
 	if w.path == "" || prSkipBranch(w.branch) {
 		return prPair{}, false
 	}
+	return pairIn(w, w.branch)
+}
+
+// pairIn is the pair of branch in w's checkout, false when the checkout has
+// no GitHub origin.
+func pairIn(w *workspace, branch string) (prPair, bool) {
 	head := strings.ToLower(githubSlug(w.path))
 	if head == "" {
 		return prPair{}, false
@@ -51,7 +58,40 @@ func pairOf(w *workspace) (prPair, bool) {
 			base = strings.ToLower(s)
 		}
 	}
-	return prPair{head: head, base: base, branch: w.branch, ids: []string{w.id}}, true
+	return prPair{head: head, base: base, branch: branch, ids: []string{w.id}}, true
+}
+
+// deliverablePair is the pair of the aswork deliverable w's harness ref
+// names, when that deliverable's work is on another branch of w's repo: a
+// task's initial worktree (where the coordinator sits, and where a worker's
+// record may land) stays on the task branch while the work, and its PR, are
+// on the deliverable's branch. false when the ref names no deliverable, the
+// deliverable's repo is another one, or its branch is w's own.
+func deliverablePair(w *workspace) (prPair, bool) {
+	if w.path == "" || w.harnessRef == "" {
+		return prPair{}, false
+	}
+	d := deliverableForRef(w.harnessRef)
+	if d == nil || d.branch == "" || d.branch == w.branch || prSkipBranch(d.branch) {
+		return prPair{}, false
+	}
+	if !samePath(d.repo, orDefault(w.repoRoot, w.path)) {
+		return prPair{}, false
+	}
+	return pairIn(w, d.branch)
+}
+
+// pairsOf are the pairs a workspace looks up: its own branch and, when it
+// has one, its deliverable's.
+func pairsOf(w *workspace) []prPair {
+	var out []prPair
+	if p, ok := pairOf(w); ok {
+		out = append(out, p)
+	}
+	if p, ok := deliverablePair(w); ok {
+		out = append(out, p)
+	}
+	return out
 }
 
 // collectPairs are the deduplicated pairs of every workspace in list.
@@ -59,17 +99,19 @@ func collectPairs(list wsList) []prPair {
 	byKey := map[string]*prPair{}
 	var keys []string
 	for _, ws := range list.Result.Workspaces {
-		p, ok := pairOf(locate(list, ws.ID))
-		if !ok {
-			continue
+		w := locate(list, ws.ID)
+		// the deliverable pair needs the harness ref, which locate leaves out
+		_, w.harnessRef = harnessFor(w.id, orDefault(w.path, w.cwd))
+		for _, p := range pairsOf(w) {
+			k := p.head + "\x00" + p.base + "\x00" + p.branch
+			if cur, ok := byKey[k]; ok {
+				cur.ids = append(cur.ids, ws.ID)
+				continue
+			}
+			p := p
+			byKey[k] = &p
+			keys = append(keys, k)
 		}
-		k := p.head + "\x00" + p.base + "\x00" + p.branch
-		if cur, ok := byKey[k]; ok {
-			cur.ids = append(cur.ids, ws.ID)
-			continue
-		}
-		byKey[k] = &p
-		keys = append(keys, k)
 	}
 	out := make([]prPair, 0, len(keys))
 	for _, k := range keys {
@@ -83,6 +125,8 @@ type prNode struct {
 	URL            string    `json:"url"`
 	State          string    `json:"state"`
 	IsDraft        bool      `json:"isDraft"`
+	ReviewDecision string    `json:"reviewDecision"`
+	Mergeable      string    `json:"mergeable"`
 	Title          string    `json:"title"`
 	Body           string    `json:"body"`
 	BaseRefName    string    `json:"baseRefName"`
@@ -91,6 +135,25 @@ type prNode struct {
 	HeadRepository *struct {
 		NameWithOwner string `json:"nameWithOwner"`
 	} `json:"headRepository"`
+	// Commits is the head commit alone (last: 1), for its checks rollup.
+	Commits struct {
+		Nodes []struct {
+			Commit struct {
+				StatusCheckRollup *struct {
+					State string `json:"state"`
+				} `json:"statusCheckRollup"`
+			} `json:"commit"`
+		} `json:"nodes"`
+	} `json:"commits"`
+}
+
+// checksRollup is the statusCheckRollup state of n's head commit, "" when
+// the commit has no checks.
+func (n prNode) checksRollup() string {
+	if len(n.Commits.Nodes) == 0 || n.Commits.Nodes[0].Commit.StatusCheckRollup == nil {
+		return ""
+	}
+	return n.Commits.Nodes[0].Commit.StatusCheckRollup.State
 }
 
 // prQuery builds one query for pairs: an alias per base repo (rN) and per
@@ -120,7 +183,8 @@ func prQuery(pairs []prPair) (query string, vars map[string]string, alias map[st
 			vars[fmt.Sprintf("b%d", b)] = branch
 			fmt.Fprintf(&decl, "$b%d: String!, ", b)
 			fmt.Fprintf(&body, "    b%d: pullRequests(headRefName: $b%d, first: 10, states: [OPEN, MERGED, CLOSED], orderBy: {field: CREATED_AT, direction: DESC}) {\n"+
-				"      nodes { number url state isDraft title body baseRefName headRefName updatedAt headRepository { nameWithOwner } }\n    }\n", b, b)
+				"      nodes { number url state isDraft reviewDecision mergeable title body baseRefName headRefName updatedAt headRepository { nameWithOwner }\n"+
+				"        commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } }\n    }\n", b, b)
 			alias[fmt.Sprintf("r%d.b%d", r, b)] = [2]string{base, branch}
 			b++
 		}
@@ -325,8 +389,9 @@ func fetchGroup(account, token string, pairs []prPair, checks map[string]sharedP
 				c.Branches[p.branch] = n.URL
 				c.Pulls[n.URL] = sharedPR{
 					Repo: p.base, Number: n.Number, Head: n.HeadRefName, Base: n.BaseRefName,
-					State: sharedPRState(n.State, n.IsDraft), Title: n.Title, Body: cutRunes(n.Body, 1500),
-					UpdatedAt: n.UpdatedAt,
+					State: sharedPRState(n.State, n.IsDraft), Review: sharedPRReview(n.ReviewDecision),
+					Checks: sharedPRChecks(n.checksRollup()), Mergeable: sharedPRMergeable(n.Mergeable),
+					Title: n.Title, Body: cutRunes(n.Body, 1500), UpdatedAt: n.UpdatedAt,
 				}
 			}
 		}
@@ -354,7 +419,7 @@ func prFacts(s sharedPRs, p prPair) string {
 	if pr == nil {
 		return ""
 	}
-	return fmt.Sprintf("%d\x00%s\x00%s", pr.Number, pr.State, pr.Title)
+	return fmt.Sprintf("%d\x00%s\x00%s\x00%s\x00%s\x00%s", pr.Number, pr.State, pr.Review, pr.Checks, pr.Mergeable, pr.Title)
 }
 
 // refreshMode says when a trigger queries GitHub.

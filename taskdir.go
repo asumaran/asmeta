@@ -23,14 +23,53 @@ type taskInfo struct {
 }
 
 var (
-	reTaskKey      = regexp.MustCompile(`(?m)^key:[ \t]*(\S+)[ \t]*$`)
-	reTaskTitle    = regexp.MustCompile(`(?m)^title:[ \t]*(.*?)[ \t]*$`)
-	reTaskParent   = regexp.MustCompile(`(?m)^parent:[ \t]*(\S+)[ \t]*$`)
-	reTaskLink     = regexp.MustCompile(`(?m)^link:[ \t]*"?(\S+?)"?[ \t]*$`)
-	reGHIssueLink  = regexp.MustCompile(`^https://github\.com/[^/]+/[^/]+/issues/(\d+)$`)
-	reTaskRow      = regexp.MustCompile(`(?m)^  - id:`)
-	reTaskRepo     = regexp.MustCompile(`(?m)^    repo:[ \t]*(\S+)[ \t]*$`)
+	reTaskKey     = regexp.MustCompile(`(?m)^key:[ \t]*(\S+)[ \t]*$`)
+	reTaskTitle   = regexp.MustCompile(`(?m)^title:[ \t]*(.*?)[ \t]*$`)
+	reTaskParent  = regexp.MustCompile(`(?m)^parent:[ \t]*(\S+)[ \t]*$`)
+	reTaskLink    = regexp.MustCompile(`(?m)^link:[ \t]*"?(\S+?)"?[ \t]*$`)
+	reGHIssueLink = regexp.MustCompile(`^https://github\.com/[^/]+/[^/]+/issues/(\d+)$`)
+	reTaskRow     = regexp.MustCompile(`(?m)^  - id:`)
+	reTaskRepo    = regexp.MustCompile(`(?m)^    repo:[ \t]*(\S+)[ \t]*$`)
+	reTaskPR      = regexp.MustCompile(`(?m)^    pr:[ \t]*"?(\S+?)"?[ \t]*$`)
 )
+
+// taskDeliverable is one row of a task's deliverables, as far as the
+// sidebar needs it: where its work lives and the PR the harness recorded.
+type taskDeliverable struct {
+	id, repo, branch, pr string
+}
+
+// deliverableForRef is the deliverable a harness ref names (KEY#ID), nil
+// when the ref has no deliverable part, no task directory or no such row.
+// A worker's record carries that ref; its PR is the deliverable's.
+func deliverableForRef(ref string) *taskDeliverable {
+	key, id, ok := strings.Cut(ref, "#")
+	if !ok || key == "" || id == "" {
+		return nil
+	}
+	front, ok := taskFrontmatter(filepath.Join(workDir, key, "TASK.md"))
+	if !ok {
+		return nil
+	}
+	for _, row := range reTaskRow.Split(front, -1)[1:] {
+		first, _, _ := strings.Cut(row, "\n")
+		if strings.TrimSpace(first) != id {
+			continue
+		}
+		d := &taskDeliverable{id: id}
+		if m := reTaskRepo.FindStringSubmatch(row); m != nil && m[1] != "none" {
+			d.repo = m[1]
+		}
+		if m := reTaskBranch.FindStringSubmatch(row); m != nil && m[1] != "none" {
+			d.branch = m[1]
+		}
+		if m := reTaskPR.FindStringSubmatch(row); m != nil && m[1] != "none" {
+			d.pr = m[1]
+		}
+		return d
+	}
+	return nil
+}
 
 // taskFrontmatter is the frontmatter of the TASK.md at path, without the
 // "---" fences; false when the file is unreadable or has none.

@@ -64,7 +64,7 @@ func TestTokensForCoordinatorSpace(t *testing.T) {
 	want := map[string]string{
 		"title": `A"B \ headers`, "desc": `A"B \ headers`,
 		"ticket": "ESHOP-1270", "parent": "↳ ESHOP-551",
-		"ref": "3 deliverables · monorepo-front +1",
+		"ref":     "3 deliverables · monorepo-front +1",
 		"harness": "es-1270", "harness_ref": "ESHOP-1270",
 	}
 	for name, v := range want {
@@ -112,5 +112,50 @@ func TestTokensForCoordinatorSpace(t *testing.T) {
 	tokens = tokensFor(&workspace{id: "w6", label: "scratch-x", cwd: jlink}, aiPlan{})
 	if tokens["ticket"] != "" {
 		t.Errorf("jira-linked slug task: %v", tokens)
+	}
+}
+
+const taskMDWithPR = `---
+key: ESHOP-3280
+title: "E2E"
+link: "https://x/browse/ESHOP-3280"
+parent: none
+deliverables:
+  - id: E2E
+    child: none
+    repo: /Users/u/Developer/monorepo-front
+    branch: ESHOP-3280-e2e
+    worktree: /Users/u/wt/monorepo-front/ESHOP-3280-e2e
+    pr: "https://github.com/masmovil/monorepo-front/pull/8977"
+  - id: DOCS
+    repo: /Users/u/Developer/monorepo-front
+    branch: ESHOP-3280-docs
+    pr: none
+---
+`
+
+func TestDeliverableForRef(t *testing.T) {
+	root := t.TempDir()
+	oldWork := workDir
+	workDir = root
+	t.Cleanup(func() { workDir = oldWork })
+	if err := os.MkdirAll(filepath.Join(root, "ESHOP-3280"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "ESHOP-3280", "TASK.md"), []byte(taskMDWithPR), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	d := deliverableForRef("ESHOP-3280#E2E")
+	if d == nil || d.id != "E2E" || d.repo != "/Users/u/Developer/monorepo-front" || d.branch != "ESHOP-3280-e2e" ||
+		d.pr != "https://github.com/masmovil/monorepo-front/pull/8977" {
+		t.Errorf("E2E = %+v", d)
+	}
+	if d := deliverableForRef("ESHOP-3280#DOCS"); d == nil || d.branch != "ESHOP-3280-docs" || d.pr != "" {
+		t.Errorf("a pr of none is no PR: %+v", d)
+	}
+	for _, ref := range []string{"ESHOP-3280", "ESHOP-3280#", "#E2E", "ESHOP-3280#NOPE", "OTHER-1#E2E", ""} {
+		if d := deliverableForRef(ref); d != nil {
+			t.Errorf("deliverableForRef(%q) = %+v, want nil", ref, d)
+		}
 	}
 }

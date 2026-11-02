@@ -11,9 +11,11 @@
 // rest of its row is kept, gone.go), $title (row 1: the descriptor on a linked worktree, the task
 // title on an aswork coordinator space (taskdir.go), the workspace
 // label elsewhere), $desc (the descriptor alone, what asgoto searches),
-// $ticket, $parent, $pr ("pr#123 draft", kept for sorting; a main checkout
-// only shows it while the PR is open or draft), $pr_state (draft,
-// merged or closed), $ref (a coordinator space's deliverables summary; a git
+// $ticket, $parent, $pr ("pr#123 draft", "pr#123 approved, ci failed":
+// the number, the state and what stands in the way, prlabel.go; kept for
+// sorting; a main checkout only shows it while the PR is open or draft),
+// $pr_state (draft, merged, closed, approved, changes requested or in
+// review), $ref (a coordinator space's deliverables summary; a git
 // branch is herdr's own `branch` token, which follows the pane's cwd on its
 // own and so never goes stale), and $harness /
 // $harness_ref (the aswork worker name and task ref of the lineage record
@@ -230,8 +232,24 @@ func collect(list wsList, id string) *workspace {
 	if w.path == "" {
 		return w
 	}
+	prs := loadSharedPRs()
 	if pair, ok := pairOf(w); ok {
-		readPR(w, loadSharedPRs(), pair)
+		readPR(w, prs, pair)
+	}
+	if w.prNum == "" {
+		// The branch has no PR of its own: the deliverable the harness
+		// ref names may (prfetch.go, deliverablePair), by its branch,
+		// else by the URL the task recorded when the cache still holds it.
+		if pair, ok := deliverablePair(w); ok {
+			readPR(w, prs, pair)
+		}
+		if w.prNum == "" && w.harnessRef != "" {
+			if d := deliverableForRef(w.harnessRef); d != nil && d.pr != "" {
+				if pr, ok := prs.pull(d.pr); ok {
+					applyPR(w, pr)
+				}
+			}
+		}
 	}
 	if w.ticket != "" {
 		parent, kind := jiraParent(w.ticket)
@@ -319,17 +337,16 @@ func readPR(w *workspace, prs sharedPRs, pair prPair) {
 	if pr == nil {
 		return
 	}
+	applyPR(w, *pr)
+}
+
+// applyPR fills the PR fields of w from one cached PR.
+func applyPR(w *workspace, pr sharedPR) {
 	w.prNum = strconv.Itoa(pr.Number)
-	if pr.State != "open" {
-		w.prState = pr.State
-	}
+	w.prLabel, w.prState = prDisplay(pr)
 	w.prBase = chomp(pr.Base)
 	w.prTitle = chomp(pr.Title)
 	w.prBody = chomp(cutRunes(pr.Body, 1500))
-	w.prLabel = "pr#" + w.prNum
-	if w.prState != "" {
-		w.prLabel += " " + w.prState
-	}
 }
 
 // branchCommits are the subjects of the commits the branch adds over its base

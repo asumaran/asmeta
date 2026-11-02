@@ -27,7 +27,8 @@ cache keys and prompt), checked by running both against the same session.
 - `prfetch.go`: the writer of the shared PR cache (`prs.json`, format and
   merge in the shared `prshare.go`): `collectPairs` (origin, upstream for a
   fork, branch of every workspace), `prQuery` (one aliased GraphQL query,
-  values as variables, up to 100 branches), `fetchPRs` (pairs grouped per gh
+  values as variables, up to 100 branches; asks state, draft, reviewDecision,
+  mergeable and the head commit's statusCheckRollup), `fetchPRs` (pairs grouped per gh
   account by the org→account map, one query per account with that account's
   token, partial answers per repo, the newest open PR of our head, actionable
   logs for a skipped account or an inaccessible repo), `refreshPRs` (flock on
@@ -46,6 +47,8 @@ cache keys and prompt), checked by running both against the same session.
 - `ai.go`: the descriptor: `planAI` (cache key and prompt), `cleanDescriptor`,
   `generate` (`claude -p`, Haiku), the queue (`queue/`) and its lock
   (`ai.flock`, a kernel `flock`, released however the process ends).
+- `prlabel.go`: `prDisplay`, the `$pr` label and `$pr_state` of a cached PR
+  (number, state or review decision, then conflicts and checks while open).
 - `regroup.go`: the sidebar order (`regroupPlan`) and the
   `workspace.move_block` socket call.
 - `ordjson.go`: JSON walked in document order, as jq's `..` does (Jira's
@@ -78,12 +81,24 @@ without a migration, or every descriptor is generated again.
   PR, else the ticket, else the branch with commits). Bump `promptVersion`
   when the prompt changes. With `ASMETA_LANG` unset the prompt and the key are
   the bash plugin's; another language adds `lang=` to the basis.
-- PR state comes normalized from `prs.json`: `draft` only while open.
+- PR state comes normalized from `prs.json`: `draft` only while open. An
+  open PR also carries `review` (approved, changes_requested,
+  review_required), `checks` (success, failure, pending) and `mergeable`
+  (mergeable, conflicting), each "" when GitHub says nothing; `prDisplay`
+  turns them into the label. A repo with no review rule has no review word,
+  so its open PRs read as a bare `pr#N`.
 - Without `~/.config/gh-accounts` every query runs token-less as the active
   gh account (the pre-map behavior). The map's `default` answers for unlisted
   orgs; an org that resolves to no account also runs token-less. Tokens are
   resolved once per account per refresh, never cached across refreshes.
 - Branches `main`, `master`, `develop` and a detached head never look a PR up.
+- A space whose branch has no PR but whose `$harness_ref` names a deliverable
+  (`KEY#ID`) shows the deliverable's PR: its branch (`TASK.md` frontmatter,
+  `deliverableForRef`) joins the refresh as a pair of that space
+  (`deliverablePair`), and `collect` falls back to it, else to the `pr:` URL
+  the task recorded when the cache still holds that pull. The case is the
+  task's initial worktree, where the coordinator sits and a worker's record
+  may land, while the work is on the deliverable's branch.
 - Focus events are throttled per workspace (`last/`); focus and rename never
   regroup.
 - A linked worktree whose checkout is gone (`os.IsNotExist` on the stat of

@@ -69,6 +69,21 @@ func TestSharedPRState(t *testing.T) {
 			t.Errorf("%s draft=%v = %s, want %s", c.state, c.draft, got, c.want)
 		}
 	}
+	for in, want := range map[string]string{"APPROVED": "approved", "CHANGES_REQUESTED": "changes_requested", "REVIEW_REQUIRED": "review_required", "": "", "WHATEVER": ""} {
+		if got := sharedPRReview(in); got != want {
+			t.Errorf("sharedPRReview(%q) = %q, want %q", in, got, want)
+		}
+	}
+	for in, want := range map[string]string{"SUCCESS": "success", "FAILURE": "failure", "ERROR": "failure", "PENDING": "pending", "EXPECTED": "pending", "": ""} {
+		if got := sharedPRChecks(in); got != want {
+			t.Errorf("sharedPRChecks(%q) = %q, want %q", in, got, want)
+		}
+	}
+	for in, want := range map[string]string{"MERGEABLE": "mergeable", "CONFLICTING": "conflicting", "UNKNOWN": "", "": ""} {
+		if got := sharedPRMergeable(in); got != want {
+			t.Errorf("sharedPRMergeable(%q) = %q, want %q", in, got, want)
+		}
+	}
 	for b, want := range map[string]bool{"": true, "main": true, "master": true, "develop": true, "feat/x": false} {
 		if prSkipBranch(b) != want {
 			t.Errorf("prSkipBranch(%q) = %v", b, !want)

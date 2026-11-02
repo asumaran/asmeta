@@ -26,6 +26,11 @@ func TestPRQuery(t *testing.T) {
 	if strings.Contains(q, `we"ird`) || !strings.Contains(q, "$b2: String!") || !strings.Contains(q, "r1: repository(owner: $o1, name: $n1)") {
 		t.Errorf("branch names travel as variables, never in the query:\n%s", q)
 	}
+	for _, field := range []string{"reviewDecision", "mergeable", "commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }"} {
+		if !strings.Contains(q, field) {
+			t.Errorf("the query must ask for %s:\n%s", field, q)
+		}
+	}
 }
 
 // noGHMap points GH_ACCOUNTS_MAP at a path that does not exist, so no test
@@ -151,7 +156,7 @@ const prTen = `[
  {"number":10,"url":"https://github.com/me/a/pull/10","state":"OPEN","isDraft":true,"title":"feat: x","body":"b","baseRefName":"main","headRefName":"feat/x","updatedAt":"2026-10-03T10:00:00Z","headRepository":{"nameWithOwner":"Me/A"}}]`
 
 const prSeven = `[
- {"number":7,"url":"https://github.com/syftdata/b/pull/7","state":"OPEN","title":"feat: y","baseRefName":"main","headRefName":"feat/y","updatedAt":"2026-10-04T10:00:00Z","headRepository":{"nameWithOwner":"syftdata/b"}}]`
+ {"number":7,"url":"https://github.com/syftdata/b/pull/7","state":"OPEN","reviewDecision":"APPROVED","mergeable":"CONFLICTING","title":"feat: y","baseRefName":"main","headRefName":"feat/y","updatedAt":"2026-10-04T10:00:00Z","headRepository":{"nameWithOwner":"syftdata/b"},"commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"FAILURE"}}}]}}]`
 
 func TestFetchPRs(t *testing.T) {
 	noGHMap(t)
@@ -176,6 +181,9 @@ func TestFetchPRs(t *testing.T) {
 	pr := a.Pulls["https://github.com/me/a/pull/10"]
 	if pr.State != "draft" || pr.Number != 10 || pr.Repo != "me/a" || pr.Base != "main" || pr.UpdatedAt.IsZero() {
 		t.Errorf("open PR of our head wins over the merged one and the other fork's: %+v", pr)
+	}
+	if pr.Review != "" || pr.Checks != "" || pr.Mergeable != "" {
+		t.Errorf("a PR GitHub says nothing about has empty review, checks and mergeable: %+v", pr)
 	}
 	if _, ok := res.checks["me/gone"]; ok {
 		t.Error("a repo that failed must be left out, so its cache stays")
@@ -323,12 +331,15 @@ func TestRefreshPRs(t *testing.T) {
 	if pr, _, _ := s.branch("me/a", "feat/x"); pr == nil || pr.Number != 10 {
 		t.Fatalf("prs.json: %+v", s)
 	}
-	if pr, _, _ := s.branch("syftdata/b", "feat/y"); pr == nil || pr.Number != 7 {
+	if pr, _, _ := s.branch("syftdata/b", "feat/y"); pr == nil || pr.Number != 7 || pr.Review != "approved" || pr.Checks != "failure" || pr.Mergeable != "conflicting" {
 		t.Fatalf("prs.json: %+v", s)
 	}
 	w := collect(list, "w1")
 	if w.prLabel != "pr#10 draft" || w.prTitle != "feat: x" || w.prBase != "main" {
 		t.Errorf("collect reads the cache: %+v", w)
+	}
+	if w3 := collect(list, "w3"); w3.prLabel != "pr#7 approved, conflicts, ci failed" || w3.prState != "approved" {
+		t.Errorf("an open PR says its review, conflicts and checks: %+v", w3)
 	}
 
 	if refreshPRs(list, refreshIfStale); len(stub.calls) != 2 {
@@ -384,4 +395,83 @@ func TestUniq(t *testing.T) {
 	if got := strings.Join(uniq([]string{"a", "b", "a", "c", "b"}), " "); got != "a b c" {
 		t.Errorf("got %q", got)
 	}
+}
+
+const prE2E = `[
+ {"number":77,"url":"https://github.com/me/a/pull/77","state":"OPEN","reviewDecision":"APPROVED","title":"test: e2e","baseRefName":"master","headRefName":"feat/e2e","updatedAt":"2026-10-30T10:00:00Z","headRepository":{"nameWithOwner":"me/a"}}]`
+
+const prOwn = `[
+ {"number":5,"url":"https://github.com/me/a/pull/5","state":"OPEN","title":"own","baseRefName":"master","headRefName":"ESHOP-3280","updatedAt":"2026-10-30T10:00:00Z","headRepository":{"nameWithOwner":"me/a"}}]`
+
+// TestDeliverablePRFallback: the task's initial worktree, on the task
+// branch with no PR, shows the PR of the deliverable its worker's record
+// names; its own branch's PR wins when there is one.
+func TestDeliverablePRFallback(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", filepath.Join(root, "plugins", "asumaran.asmeta"))
+	stateDir, focusThrottle = stateDirFor("asmeta"), 120
+	noGHMap(t)
+	stubTokens(t, nil)
+	repo := gitRepo(t, "me/a", "ESHOP-3280")
+
+	oldWork := workDir
+	workDir = filepath.Join(root, "work")
+	t.Cleanup(func() { workDir = oldWork })
+	if err := os.MkdirAll(filepath.Join(workDir, "ESHOP-3280"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	task := "---\nkey: ESHOP-3280\ntitle: \"E2E\"\ndeliverables:\n  - id: E2E\n    repo: " + repo +
+		"\n    branch: feat/e2e\n    pr: \"https://github.com/me/a/pull/77\"\n  - id: X\n    repo: /elsewhere\n    branch: feat/other\n---\n"
+	if err := os.WriteFile(filepath.Join(workDir, "ESHOP-3280", "TASK.md"), []byte(task), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	oldRecs, oldLive, oldLiveRead := lineageRecords, liveAgents, liveAgentsRead
+	lineageRecords = []lineageRecord{{name: "wk_1", ref: "ESHOP-3280#E2E", workspaceID: "w1", launchedAt: "2026-10-29"}}
+	liveAgents, liveAgentsRead = map[string]bool{"wk_1": true}, true
+	t.Cleanup(func() { lineageRecords, liveAgents, liveAgentsRead = oldRecs, oldLive, oldLiveRead })
+
+	list := wsList{}
+	list.Result.Workspaces = []wsEntry{{ID: "w1", Label: "task"}}
+	list.Result.Workspaces[0].Worktree = &wsWorktree{CheckoutPath: repo, IsLinked: true, RepoRoot: repo}
+
+	pairs := collectPairs(list)
+	if len(pairs) != 2 || pairs[0].branch != "ESHOP-3280" || pairs[1].branch != "feat/e2e" || pairs[1].ids[0] != "w1" {
+		t.Fatalf("the deliverable's branch joins the refresh as a pair of the space: %+v", pairs)
+	}
+	stub := &ghStub{repos: map[string]map[string]string{"me/a": {"ESHOP-3280": "", "feat/e2e": prE2E}}}
+	stubGH(t, stub)
+	if changed := refreshPRs(list, refreshAlways); strings.Join(changed, " ") != "w1" {
+		t.Fatalf("a deliverable PR change republishes the space: %v", changed)
+	}
+	if w := collect(list, "w1"); w.prLabel != "pr#77 approved" || w.prTitle != "test: e2e" || w.harnessRef != "ESHOP-3280#E2E" {
+		t.Errorf("the deliverable's PR: %+v", w)
+	}
+
+	// the cache lost the branch but still holds the pull: the recorded URL finds it
+	s := loadSharedPRs()
+	s.Branches["me/a"]["feat/e2e"] = sharedBranch{CheckedAt: time.Now()}
+	if err := s.save(); err != nil {
+		t.Fatal(err)
+	}
+	if w := collect(list, "w1"); w.prLabel != "pr#77 approved" {
+		t.Errorf("the task's pr URL as a last resort: %+v", w)
+	}
+
+	// a PR of its own wins
+	stub.repos["me/a"]["ESHOP-3280"] = prOwn
+	refreshPRs(list, refreshForced)
+	if w := collect(list, "w1"); w.prLabel != "pr#5" {
+		t.Errorf("own branch first: %+v", w)
+	}
+
+	// another deliverable's repo, or no record: no pair
+	lineageRecords[0].ref = "ESHOP-3280#X"
+	if _, ok := deliverablePair(collect(list, "w1")); ok {
+		t.Error("a deliverable of another repo is no pair")
+	}
+	lineageRecords[0].ref = ""
+	if _, ok := deliverablePair(collect(list, "w1")); ok {
+		t.Error("no harness ref, no pair")
+	}
+	os.Remove(sharedPRFile())
 }
