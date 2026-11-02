@@ -1,3 +1,8 @@
+## v0.8.0 (2026-11-02)
+
+* feat(sidebar): show a GitHub-issue ticket as #n (f4dea27)
+* feat(sidebar): PR review state, conflicts and checks (fdfd0b9)
+
 ## v0.7.0 (2026-11-01)
 
 * feat(sidebar): keep a deleted worktree's row (77a2dad)
