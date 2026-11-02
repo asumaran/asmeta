@@ -149,7 +149,7 @@ func TestGoneRecoveryFillsFieldByField(t *testing.T) {
 
 	// the ticket is recovered, the PR is not in the cache yet
 	got := goneTokens(f.ws("w1"))
-	if got["ticket"] != "issue#44" || got["pr"] != "" || got["harness"] != "wk_a" {
+	if got["ticket"] != "#44" || got["pr"] != "" || got["harness"] != "wk_a" {
 		t.Fatalf("first run: %v", got)
 	}
 	f.published("w1", got)
@@ -157,7 +157,7 @@ func TestGoneRecoveryFillsFieldByField(t *testing.T) {
 	// a later run, with the PR now cached, completes it and keeps the ticket
 	f.prs("asumaran/convokia", "feat/44-fly", 101, "merged")
 	got = goneTokens(f.ws("w1"))
-	if got["ticket"] != "issue#44" || got["pr"] != "pr#101 merged" || got["pr_state"] != "merged" {
+	if got["ticket"] != "#44" || got["pr"] != "pr#101 merged" || got["pr_state"] != "merged" {
 		t.Fatalf("second run: %v", got)
 	}
 
@@ -191,7 +191,7 @@ func TestTaskBranchFor(t *testing.T) {
 	}
 
 	f.task("b", taskMDFor("b", "https://github.com/asumaran/convokia/issues/44", f.repo, "feat/44-fly"))
-	if _, tk := taskBranchFor(f.repo, f.wt); tk != "issue#44" {
+	if _, tk := taskBranchFor(f.repo, f.wt); tk != "#44" {
 		t.Errorf("issue link: %q", tk)
 	}
 
@@ -317,7 +317,7 @@ func TestGoneTransitionsAndPublish(t *testing.T) {
 	// existing → deleted: the row is rebuilt and the marker set
 	publish(f.ws("w1"), aiPlan{})
 	log := f.callLog()
-	for _, want := range []string{"--token title=Fly", "--token ticket=issue#44", "--token pr=pr#101 merged",
+	for _, want := range []string{"--token title=Fly", "--token ticket=#44", "--token pr=pr#101 merged",
 		"--token pr_state=merged", "--token gone=deleted"} {
 		if !strings.Contains(log, want) {
 			t.Errorf("report lacks %q:\n%s", want, log)
@@ -325,7 +325,7 @@ func TestGoneTransitionsAndPublish(t *testing.T) {
 	}
 	var saved map[string]string
 	readJSONFile(publishedCache("w1"), &saved)
-	if saved["gone"] != "deleted" || saved["ticket"] != "issue#44" {
+	if saved["gone"] != "deleted" || saved["ticket"] != "#44" {
 		t.Errorf("published cache: %v", saved)
 	}
 

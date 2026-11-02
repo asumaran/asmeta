@@ -134,7 +134,7 @@ func defaultWorkDir() string {
 	return filepath.Join(home, ".claude", "work")
 }
 
-// issueTicketForRef is the "issue#n" shown by the task a harness ref points
+// issueTicketForRef is the "#n" shown by the task a harness ref points
 // at, "" when the ref has no task directory or the task's link is no GitHub
 // issue. It gives a worker the same $ticket as its coordinator: a GitHub
 // issue number lives only in the task's link, never in a branch name.
@@ -148,7 +148,7 @@ func issueTicketForRef(ref string) string {
 		return ""
 	}
 	if m := reGHIssueLink.FindStringSubmatch(t.link); m != nil {
-		return "issue#" + m[1]
+		return "#" + m[1]
 	}
 	return ""
 }
@@ -166,7 +166,7 @@ func unquoteYAML(s string) string {
 }
 
 // taskTokens is a coordinator space's token set: row 1 is the bare task
-// title, row 2 carries the $ticket (Jira KEY, or "issue#<n>" for a GitHub
+// title, row 2 carries the $ticket (Jira KEY, or "#<n>" for a GitHub
 // issue), the deliverables summary ($ref) and the parent task. The
 // coordinator mark is the co_* handle in $harness, not a title prefix.
 func taskTokens(w *workspace, t *taskInfo) map[string]string {
@@ -188,11 +188,11 @@ func taskTokens(w *workspace, t *taskInfo) map[string]string {
 		parent = "↳ " + t.parent
 	}
 	// $ticket: a Jira KEY in the task key, else the GitHub issue from the
-	// task's link ("issue#17"; the repo already rides in $harness_ref).
+	// task's link ("#17"; the repo already rides in $harness_ref).
 	ticket := ticketRe.FindString(t.key)
 	if ticket == "" {
 		if m := reGHIssueLink.FindStringSubmatch(t.link); m != nil {
-			ticket = "issue#" + m[1]
+			ticket = "#" + m[1]
 		}
 	}
 	return map[string]string{

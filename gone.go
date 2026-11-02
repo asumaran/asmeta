@@ -136,7 +136,7 @@ var reTaskBranch = regexp.MustCompile(`(?m)^    branch:[ \t]*(\S+)[ \t]*$`)
 
 // taskBranchFor finds the aswork deliverable whose worktree gonePath was (its
 // repo is the same directory as repoRoot, its branch's directory gonePath's)
-// and returns the branch and the task's ticket: "issue#n" for a GitHub-issue
+// and returns the branch and the task's ticket: "#n" for a GitHub-issue
 // task, else the Jira key of the task. A task dir outlives its archived
 // worktrees. Only the frontmatter is read; when more than one row matches the
 // answer is ambiguous and nothing is returned.
@@ -175,12 +175,12 @@ func taskBranchFor(repoRoot, gonePath string) (branch, ticket string) {
 	return branch, ticket
 }
 
-// taskTicket is the ticket a task shows: "issue#n" for a GitHub-issue link,
+// taskTicket is the ticket a task shows: "#n" for a GitHub-issue link,
 // else the Jira key of the task's key; "" when it has neither.
 func taskTicket(front string) string {
 	if m := reTaskLink.FindStringSubmatch(front); m != nil {
 		if g := reGHIssueLink.FindStringSubmatch(m[1]); g != nil {
-			return "issue#" + g[1]
+			return "#" + g[1]
 		}
 	}
 	if m := reTaskKey.FindStringSubmatch(front); m != nil {
