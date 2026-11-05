@@ -232,25 +232,7 @@ func collect(list wsList, id string) *workspace {
 	if w.path == "" {
 		return w
 	}
-	prs := loadSharedPRs()
-	if pair, ok := pairOf(w); ok {
-		readPR(w, prs, pair)
-	}
-	if w.prNum == "" {
-		// The branch has no PR of its own: the deliverable the harness
-		// ref names may (prfetch.go, deliverablePair), by its branch,
-		// else by the URL the task recorded when the cache still holds it.
-		if pair, ok := deliverablePair(w); ok {
-			readPR(w, prs, pair)
-		}
-		if w.prNum == "" && w.harnessRef != "" {
-			if d := deliverableForRef(w.harnessRef); d != nil && d.pr != "" {
-				if pr, ok := prs.pull(d.pr); ok {
-					applyPR(w, pr)
-				}
-			}
-		}
-	}
+	resolvePR(w, loadSharedPRs())
 	if w.ticket != "" {
 		parent, kind := jiraParent(w.ticket)
 		// An epic is a container, not a sibling group: only real parents are shown.
@@ -329,6 +311,35 @@ func commonDir(top string) string {
 		return real
 	}
 	return ""
+}
+
+// resolvePR fills w's PR fields from the shared cache: its own branch's PR;
+// else the PR of the deliverable its harness ref names (prfetch.go,
+// deliverablePair), by its branch, else by the URL the task recorded when
+// the cache still holds it; else the PR of another branch that names its
+// ticket (ticketpr.go). w needs its harness ref.
+func resolvePR(w *workspace, prs sharedPRs) {
+	if pair, ok := pairOf(w); ok {
+		readPR(w, prs, pair)
+	}
+	if w.prNum != "" {
+		return
+	}
+	if pair, ok := deliverablePair(w); ok {
+		readPR(w, prs, pair)
+	}
+	if w.prNum == "" && w.harnessRef != "" {
+		if d := deliverableForRef(w.harnessRef); d != nil && d.pr != "" {
+			if pr, ok := prs.pull(d.pr); ok {
+				applyPR(w, pr)
+			}
+		}
+	}
+	if w.prNum == "" {
+		if pair, ok := ticketPair(w, prs); ok {
+			readPR(w, prs, pair)
+		}
+	}
 }
 
 // readPR fills the PR fields from the shared cache (prfetch.go writes it).

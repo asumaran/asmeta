@@ -8,7 +8,10 @@ its review: `approved`, `changes requested`, `review`) and what stands in
 its way while open (`conflicts`, `ci failed`, `ci pending`), so a row says
 `pr#123 approved` or `pr#123 review, ci failed`. A space whose branch
 has no PR but which an aswork worker names (`$harness_ref` = `KEY#ID`) shows
-the PR of that deliverable's branch, read from the task's `TASK.md`. Inside each repo,
+the PR of that deliverable's branch, read from the task's `TASK.md`. Failing
+both, a space with a ticket shows a PR of its repo opened from another branch
+that names the ticket (an agent's `coder/syf2-6373-...` for a space on
+`SYF2-6373`). Inside each repo,
 linked worktrees are sorted by parent ticket, ticket and PR number, so the
 subtasks of one parent end up next to each other.
 

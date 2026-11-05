@@ -82,8 +82,8 @@ func deliverablePair(w *workspace) (prPair, bool) {
 }
 
 // pairsOf are the pairs a workspace looks up: its own branch and, when it
-// has one, its deliverable's.
-func pairsOf(w *workspace) []prPair {
+// has them, its deliverable's and the cached branch that names its ticket.
+func pairsOf(w *workspace, prs sharedPRs) []prPair {
 	var out []prPair
 	if p, ok := pairOf(w); ok {
 		out = append(out, p)
@@ -91,21 +91,38 @@ func pairsOf(w *workspace) []prPair {
 	if p, ok := deliverablePair(w); ok {
 		out = append(out, p)
 	}
+	if p, ok := ticketPair(w, prs); ok {
+		out = append(out, p)
+	}
+	return out
+}
+
+// locateAll locates every workspace of list, with its harness ref (the
+// deliverable pair needs it, and locate leaves it out).
+func locateAll(list wsList) []*workspace {
+	out := make([]*workspace, 0, len(list.Result.Workspaces))
+	for _, ws := range list.Result.Workspaces {
+		w := locate(list, ws.ID)
+		_, w.harnessRef = harnessFor(w.id, orDefault(w.path, w.cwd))
+		out = append(out, w)
+	}
 	return out
 }
 
 // collectPairs are the deduplicated pairs of every workspace in list.
 func collectPairs(list wsList) []prPair {
+	return pairsFor(locateAll(list), loadSharedPRs())
+}
+
+// pairsFor are the deduplicated pairs of located workspaces.
+func pairsFor(ws []*workspace, prs sharedPRs) []prPair {
 	byKey := map[string]*prPair{}
 	var keys []string
-	for _, ws := range list.Result.Workspaces {
-		w := locate(list, ws.ID)
-		// the deliverable pair needs the harness ref, which locate leaves out
-		_, w.harnessRef = harnessFor(w.id, orDefault(w.path, w.cwd))
-		for _, p := range pairsOf(w) {
+	for _, w := range ws {
+		for _, p := range pairsOf(w, prs) {
 			k := p.head + "\x00" + p.base + "\x00" + p.branch
 			if cur, ok := byKey[k]; ok {
-				cur.ids = append(cur.ids, ws.ID)
+				cur.ids = append(cur.ids, w.id)
 				continue
 			}
 			p := p
@@ -156,6 +173,21 @@ func (n prNode) checksRollup() string {
 	return n.Commits.Nodes[0].Commit.StatusCheckRollup.State
 }
 
+// prNodeFields are the fields of a prNode, in a pullRequests connection or
+// a search.
+const prNodeFields = "number url state isDraft reviewDecision mergeable title body baseRefName headRefName updatedAt headRepository { nameWithOwner }\n" +
+	"        commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }"
+
+// sharedOf is the cache entry of node n, a PR opened in base.
+func sharedOf(base string, n *prNode) sharedPR {
+	return sharedPR{
+		Repo: base, Number: n.Number, Head: n.HeadRefName, Base: n.BaseRefName,
+		State: sharedPRState(n.State, n.IsDraft), Review: sharedPRReview(n.ReviewDecision),
+		Checks: sharedPRChecks(n.checksRollup()), Mergeable: sharedPRMergeable(n.Mergeable),
+		Title: n.Title, Body: cutRunes(n.Body, 1500), UpdatedAt: n.UpdatedAt,
+	}
+}
+
 // prQuery builds one query for pairs: an alias per base repo (rN) and per
 // branch in it (bN), every value passed as a variable.
 func prQuery(pairs []prPair) (query string, vars map[string]string, alias map[string][2]string) {
@@ -183,8 +215,7 @@ func prQuery(pairs []prPair) (query string, vars map[string]string, alias map[st
 			vars[fmt.Sprintf("b%d", b)] = branch
 			fmt.Fprintf(&decl, "$b%d: String!, ", b)
 			fmt.Fprintf(&body, "    b%d: pullRequests(headRefName: $b%d, first: 10, states: [OPEN, MERGED, CLOSED], orderBy: {field: CREATED_AT, direction: DESC}) {\n"+
-				"      nodes { number url state isDraft reviewDecision mergeable title body baseRefName headRefName updatedAt headRepository { nameWithOwner }\n"+
-				"        commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } }\n    }\n", b, b)
+				"      nodes { "+prNodeFields+" }\n    }\n", b, b)
 			alias[fmt.Sprintf("r%d.b%d", r, b)] = [2]string{base, branch}
 			b++
 		}
@@ -387,12 +418,7 @@ func fetchGroup(account, token string, pairs []prPair, checks map[string]sharedP
 					continue
 				}
 				c.Branches[p.branch] = n.URL
-				c.Pulls[n.URL] = sharedPR{
-					Repo: p.base, Number: n.Number, Head: n.HeadRefName, Base: n.BaseRefName,
-					State: sharedPRState(n.State, n.IsDraft), Review: sharedPRReview(n.ReviewDecision),
-					Checks: sharedPRChecks(n.checksRollup()), Mergeable: sharedPRMergeable(n.Mergeable),
-					Title: n.Title, Body: cutRunes(n.Body, 1500), UpdatedAt: n.UpdatedAt,
-				}
+				c.Pulls[n.URL] = sharedOf(p.base, n)
 			}
 		}
 	}
@@ -436,7 +462,8 @@ const (
 // refresh runs wait for it and use its answer instead of querying again.
 func refreshPRs(list wsList, mode refreshMode) []string {
 	requested := time.Now()
-	pairs := collectPairs(list)
+	ws := locateAll(list)
+	pairs := pairsFor(ws, loadSharedPRs())
 	if len(pairs) == 0 {
 		return nil
 	}
@@ -469,6 +496,9 @@ func refreshPRs(list wsList, mode refreshMode) []string {
 	cur.LastQueryStartedAt = queryStarted
 	now := time.Now()
 	cur.merge(res.checks, now)
+	// Spaces still without a PR look one up by their ticket (ticketpr.go).
+	found := searchTicketPRs(ticketSearches(ws, cur, mode == refreshForced, now), backoff, res.accounts)
+	cur.merge(found.checks, time.Now())
 	for account, ar := range res.accounts {
 		switch {
 		case ar.rateLimited:
@@ -493,7 +523,7 @@ func refreshPRs(list wsList, mode refreshMode) []string {
 			changed = append(changed, p.ids...)
 		}
 	}
-	return changed
+	return append(changed, found.ids...)
 }
 
 // prsStale: some pair was never checked, or not within the focus throttle.

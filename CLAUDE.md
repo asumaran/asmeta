@@ -49,6 +49,8 @@ cache keys and prompt), checked by running both against the same session.
   (`ai.flock`, a kernel `flock`, released however the process ends).
 - `prlabel.go`: `prDisplay`, the `$pr` label and `$pr_state` of a cached PR
   (number, state or review decision, then conflicts and checks while open).
+- `ticketpr.go`: a ticket's PR on another branch (`ticketBranchMatch`,
+  `ticketPair`, `ticketSearches`, `searchTicketPRs`).
 - `regroup.go`: the sidebar order (`regroupPlan`) and the
   `workspace.move_block` socket call.
 - `ordjson.go`: JSON walked in document order, as jq's `..` does (Jira's
@@ -70,7 +72,7 @@ out by `statedir.go` when run by hand): `ai/<key>` (descriptor),
 `ai/<key>.fail` (cooldown marker), `parents/`, `summaries/`, `descriptions/`
 (Jira, per ticket), `queue/<workspace id>`, `last/<workspace id>` (focus
 throttle), `published/<workspace id>.json` (last published token set, replayed
-on startup before any network work), `renamed/<workspace id>` (the label
+on startup before any network work), `ticketprs/<head>_<KEY>` (last ticket PR search), `renamed/<workspace id>` (the label
 asmeta gave a space it controls, given back when it stops controlling it),
 `ai.flock`, `prs.json` and `prs.lock` (the shared PR cache). The layout is the bash plugin's; do not rename files
 without a migration, or every descriptor is generated again.
@@ -99,6 +101,14 @@ without a migration, or every descriptor is generated again.
   the task recorded when the cache still holds that pull. The case is the
   task's initial worktree, where the coordinator sits and a worker's record
   may land, while the work is on the deliverable's branch.
+- Failing that, a space with a ticket shows the PR of another branch that
+  names the ticket (`ticketpr.go`; case-insensitive, not followed by a
+  digit). The refresh finds it with a GitHub search (`repo:<base> is:pr
+  <KEY>`, kept only when the head branch names the ticket and the head repo
+  is the origin), for spaces still without a PR, at most once per ticket per
+  15 minutes (`ticketprs/` marks, `--force` ignores them). The match lands in
+  `prs.json` as a regular branch; from then on `ticketPair` makes it a pair
+  of the space and the regular query keeps it fresh, with no search.
 - Focus events are throttled per workspace (`last/`); focus and rename never
   regroup.
 - A linked worktree whose checkout is gone (`os.IsNotExist` on the stat of

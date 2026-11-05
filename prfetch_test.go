@@ -84,8 +84,9 @@ func stubGraphQL(t *testing.T, stdout, stderr string) *int32 {
 
 // ghCall is one recorded ghGraphQL invocation.
 type ghCall struct {
-	token string
-	bases []string
+	token    string
+	bases    []string
+	searches []string
 }
 
 // ghStub answers each query from its own aliases and vars: repos maps a base
@@ -96,11 +97,14 @@ type ghStub struct {
 	repos   map[string]map[string]string
 	limited map[string]bool
 	calls   []ghCall
+	// searches maps a search string to its nodes (a JSON array).
+	searches map[string]string
 }
 
 var (
 	stubRepoRe   = regexp.MustCompile(`(r\d+): repository\(owner: \$(o\d+), name: \$(n\d+)\)`)
 	stubBranchRe = regexp.MustCompile(`(b\d+): pullRequests\(headRefName: \$(b\d+),`)
+	stubSearchRe = regexp.MustCompile(`(s\d+): search\(query: \$(q\d+),`)
 )
 
 // stubGH installs s as ghGraphQL.
@@ -127,6 +131,16 @@ func stubGH(t *testing.T, s *ghStub) {
 					cur, branches = nil, nil
 					data[m[1]] = nil
 				}
+				continue
+			}
+			if m := stubSearchRe.FindStringSubmatch(line); m != nil {
+				q := vars[m[2]]
+				call.searches = append(call.searches, q)
+				nodes := s.searches[q]
+				if nodes == "" {
+					nodes = "[]"
+				}
+				data[m[1]] = map[string]any{"nodes": json.RawMessage(nodes)}
 				continue
 			}
 			if m := stubBranchRe.FindStringSubmatch(line); m != nil && cur != nil {
