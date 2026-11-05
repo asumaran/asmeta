@@ -1,3 +1,8 @@
+## v0.9.0 (2026-11-05)
+
+* feat(sidebar): show a ticket's PR opened from another branch (2d40139)
+* docs(readme): row 2 no longer shows the branch (7dc6b8f)
+
 ## v0.8.0 (2026-11-02)
 
 * feat(sidebar): show a GitHub-issue ticket as #n (f4dea27)
