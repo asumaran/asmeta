@@ -10,7 +10,8 @@ func TestHarnessFor(t *testing.T) {
 	dir := t.TempDir()
 	worker := filepath.Join(dir, "wt", "monorepo-front", "feat-ESHOP-1270")
 	taskDir := filepath.Join(dir, "work", "ESHOP-1270")
-	for _, d := range []string{worker, taskDir, filepath.Join(dir, "lineage", "archive")} {
+	asking := filepath.Join(dir, "wt", "monorepo-front", "feat-ASK-1")
+	for _, d := range []string{worker, taskDir, asking, filepath.Join(dir, "lineage", "archive")} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -37,7 +38,9 @@ func TestHarnessFor(t *testing.T) {
 	write("legacy.json", `{"agent":{"name":"legacy","worktree":"`+worker+`"},"task":{"ref":"LEGACY-1"}}`)
 	// A native verifier that ran against the main checkout and finished: no
 	// workspace to check against herdr, so its state decides. Newer than the
-	// legacy record, it would win the path match if it counted.
+	// legacy record, it would win the path match if it counted. A native
+	// worker waiting on the user is still alive and keeps its badge.
+	write("wk_asks.json", `{"agent":{"name":"wk_asks","worktree":"`+asking+`"},"task":{"ref":"ASK-1#y"},"state":"blocked-on-user","launched_at":"2026-11-06T22:56:05"}`)
 	write("wk_done.json", `{"agent":{"name":"wk_done","worktree":"`+worker+`"},"task":{"ref":"DONE-1#x"},"state":"finished","launched_at":"2026-11-06T22:56:05"}`)
 	write("broken.json", `{`)
 	write("es-1270-f.lock", "")
@@ -82,6 +85,10 @@ func TestHarnessFor(t *testing.T) {
 	// native record (wk_done, newer) does not count.
 	if name, ref := harnessFor("w9", worker); name != "legacy" || ref != "LEGACY-1" {
 		t.Errorf("other workspace, same checkout: got %q %q", name, ref)
+	}
+	// A native worker blocked on the user is alive: its badge stays.
+	if name, ref := harnessFor("w9", asking); name != "wk_asks" || ref != "ASK-1#y" {
+		t.Errorf("native worker blocked-on-user: got %q %q", name, ref)
 	}
 	if name, ref := harnessFor("w9", link); name != "legacy" || ref != "LEGACY-1" {
 		t.Errorf("symlinked path: got %q %q", name, ref)

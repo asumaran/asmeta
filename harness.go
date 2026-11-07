@@ -16,8 +16,9 @@ package main
 // agent exits, so the live names are the truth. When herdr cannot be read
 // every record counts, as before. A record without a workspace (a native
 // subagent, say a verifier that read the main checkout) cannot be checked
-// against herdr; it counts only while its state is still running, so a
-// finished verifier does not keep naming the checkout it sat in.
+// against herdr; it counts until its state is finished (running and
+// blocked-on-user are both alive), so a finished verifier does not keep
+// naming the checkout it sat in.
 
 import (
 	"encoding/json"
@@ -176,7 +177,7 @@ func loadLineage() []lineageRecord {
 		if rec.Agent.WorkspaceID != "" && liveAgents != nil && !liveAgents[rec.Agent.Name] {
 			continue
 		}
-		if rec.Agent.WorkspaceID == "" && rec.State != "" && rec.State != "running" {
+		if rec.Agent.WorkspaceID == "" && rec.State == "finished" {
 			continue
 		}
 		worktree := ""
