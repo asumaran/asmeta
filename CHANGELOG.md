@@ -1,3 +1,7 @@
+## v0.9.2 (2026-11-07)
+
+* fix(harness): keep native records blocked on the user (a03eea1)
+
 ## v0.9.1 (2026-11-06)
 
 * fix(harness): ignore finished native lineage records (5a57ae9)
