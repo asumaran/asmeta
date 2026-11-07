@@ -1,3 +1,7 @@
+## v0.9.1 (2026-11-06)
+
+* fix(harness): ignore finished native lineage records (5a57ae9)
+
 ## v0.9.0 (2026-11-05)
 
 * feat(sidebar): show a ticket's PR opened from another branch (2d40139)
