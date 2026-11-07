@@ -14,7 +14,10 @@ package main
 // /aw:close, not on exit). So a record naming a workspace counts only while
 // herdr still lists an agent with that name; herdr clears a name when its
 // agent exits, so the live names are the truth. When herdr cannot be read
-// every record counts, as before.
+// every record counts, as before. A record without a workspace (a native
+// subagent, say a verifier that read the main checkout) cannot be checked
+// against herdr; it counts only while its state is still running, so a
+// finished verifier does not keep naming the checkout it sat in.
 
 import (
 	"encoding/json"
@@ -161,6 +164,7 @@ func loadLineage() []lineageRecord {
 			Task struct {
 				Ref string `json:"ref"`
 			} `json:"task"`
+			State      string `json:"state"`
 			LaunchedAt string `json:"launched_at"`
 		}
 		if json.Unmarshal(data, &rec) != nil {
@@ -170,6 +174,9 @@ func loadLineage() []lineageRecord {
 			continue
 		}
 		if rec.Agent.WorkspaceID != "" && liveAgents != nil && !liveAgents[rec.Agent.Name] {
+			continue
+		}
+		if rec.Agent.WorkspaceID == "" && rec.State != "" && rec.State != "running" {
 			continue
 		}
 		worktree := ""

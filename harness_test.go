@@ -35,6 +35,10 @@ func TestHarnessFor(t *testing.T) {
 	write("wk_ef56.json", `{"agent":{"name":"wk_ef56","workspace_id":"w3","worktree":"`+worker+`"},"task":{"ref":"ESHOP-9#B"},"launched_at":"2026-10-17T09:00:00"}`)
 	write("es-1270.json", `{"agent":{"name":"es-1270","workspace_id":"w2","worktree":"`+taskDir+`"},"task":{"ref":"ESHOP-1270"}}`)
 	write("legacy.json", `{"agent":{"name":"legacy","worktree":"`+worker+`"},"task":{"ref":"LEGACY-1"}}`)
+	// A native verifier that ran against the main checkout and finished: no
+	// workspace to check against herdr, so its state decides. Newer than the
+	// legacy record, it would win the path match if it counted.
+	write("wk_done.json", `{"agent":{"name":"wk_done","worktree":"`+worker+`"},"task":{"ref":"DONE-1#x"},"state":"finished","launched_at":"2026-11-06T22:56:05"}`)
 	write("broken.json", `{`)
 	write("es-1270-f.lock", "")
 	write(filepath.Join("archive", "old.json"), `{"agent":{"name":"old","workspace_id":"w1","worktree":"`+worker+`"},"task":{"ref":"OLD-1"}}`)
@@ -74,7 +78,8 @@ func TestHarnessFor(t *testing.T) {
 	}
 	// A record naming a workspace never matches another workspace by path:
 	// a new space in the same checkout must not inherit a leftover record.
-	// Only the legacy record (no workspace_id) matches by path.
+	// Only the legacy record (no workspace_id) matches by path; the finished
+	// native record (wk_done, newer) does not count.
 	if name, ref := harnessFor("w9", worker); name != "legacy" || ref != "LEGACY-1" {
 		t.Errorf("other workspace, same checkout: got %q %q", name, ref)
 	}
