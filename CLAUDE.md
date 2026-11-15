@@ -49,6 +49,7 @@ cache keys and prompt), checked by running both against the same session.
   (`ai.flock`, a kernel `flock`, released however the process ends).
 - `prlabel.go`: `prDisplay`, the `$pr` label and `$pr_state` of a cached PR
   (number, state or review decision, then conflicts and checks while open).
+- `ticketkey.go`: the ticket a branch names (`branchTicket`, `projectKeys`).
 - `ticketpr.go`: a ticket's PR on another branch (`ticketBranchMatch`,
   `ticketPair`, `ticketSearches`, `searchTicketPRs`).
 - `regroup.go`: the sidebar order (`regroupPlan`) and the
@@ -93,6 +94,13 @@ without a migration, or every descriptor is generated again.
   gh account (the pre-map behavior). The map's `default` answers for unlisted
   orgs; an org that resolves to no account also runs token-less. Tokens are
   resolved once per account per refresh, never cached across refreshes.
+- The ticket comes from the branch name (`ticketkey.go`, `branchTicket`): an
+  upper-case `KEY-123` as written, else a lower-case one (`coder/syf2-6278-...`)
+  only when its project key is known, since `inbox-27` or `fix-123` have the
+  same shape. Known keys: `ASMETA_TICKET_KEYS` (comma separated), every
+  stack's `default_project` and the keys of the aswork task directories (a
+  Linear team has no `default_project`). Who the ticket is assigned to plays
+  no part.
 - Branches `main`, `master`, `develop` and a detached head never look a PR up.
 - A space whose branch has no PR but whose `$harness_ref` names a deliverable
   (`KEY#ID`) shows the deliverable's PR: its branch (`TASK.md` frontmatter,

@@ -294,7 +294,7 @@ func locate(list wsList, id string) *workspace {
 	}
 
 	w.branch = gitOut(w.path, "branch", "--show-current")
-	w.ticket = ticketRe.FindString(w.branch)
+	w.ticket = branchTicket(w.branch)
 	return w
 }
 

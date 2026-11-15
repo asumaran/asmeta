@@ -73,7 +73,7 @@ func recoverGone(w *workspace, tokens map[string]string) {
 	}
 	if tokens["ticket"] == "" {
 		if ticket == "" {
-			ticket = ticketRe.FindString(branch)
+			ticket = branchTicket(branch)
 		}
 		if ticket != "" {
 			tokens["ticket"] = ticket
