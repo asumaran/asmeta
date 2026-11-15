@@ -1,3 +1,7 @@
+## v0.9.3 (2026-11-15)
+
+* fix(ticket): read lower-case tickets from branches (a023629)
+
 ## v0.9.2 (2026-11-07)
 
 * fix(harness): keep native records blocked on the user (a03eea1)
