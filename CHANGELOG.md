@@ -1,3 +1,7 @@
+## v0.9.4 (2026-11-25)
+
+* fix(ai): build the descriptor from titles (342a040)
+
 ## v0.9.3 (2026-11-15)
 
 * fix(ticket): read lower-case tickets from branches (a023629)
