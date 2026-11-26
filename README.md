@@ -15,9 +15,13 @@ that names the ticket (an agent's `coder/syf2-6373-...` for a space on
 linked worktrees are sorted by parent ticket, ticket and PR number, so the
 subtasks of one parent end up next to each other.
 
-The descriptor is a 3 to 5 word summary, written once per PR or ticket by
-`claude -p` (Haiku) and cached. Until it exists, or without `claude`, the row
-shows the PR title, then the Jira summary, then the workspace label.
+The descriptor is a 3 to 5 word summary of the work's title, written by
+`claude -p` (Haiku) and cached until that title changes. The title is the
+PR's, the ticket's and the aswork task's; a space with none of them is summed
+up from the heading of its `HANDOFF.md`, else from the first prompt of its
+first Claude Code session, else from its commits. Until the descriptor
+exists, or without `claude`, the row shows the PR title, then the Jira
+summary, then the task title, then the workspace label.
 
 An aswork coordinator space (a workspace whose pane sits in a task directory,
 `~/.claude/work/<KEY>/`) has no checkout; instead of a bare label its rows

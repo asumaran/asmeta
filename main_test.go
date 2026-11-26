@@ -39,33 +39,131 @@ func TestCleanDescriptor(t *testing.T) {
 	if got := cleanDescriptor(" \n\n", 10); got != "" {
 		t.Errorf("blank answer: %q", got)
 	}
+	if got := cleanDescriptor("Respuestas en mayúscula inicial, sin formato extra", 34); got != "Respuestas en mayúscula inicial" {
+		t.Errorf("the cut must not leave a comma: %q", got)
+	}
+}
+
+func TestTaggedDescriptor(t *testing.T) {
+	talk := "Respuesta de una sola línea, sin formato extra.\n\n<descriptor>Primera</descriptor>\nCorrijo:\n<descriptor>Respuesta completa en LinkedIn</descriptor>\n"
+	if got, ok := taggedDescriptor(talk); !ok || got != "Respuesta completa en LinkedIn" {
+		t.Errorf("the last tag is the answer: %q %v", got, ok)
+	}
+	if _, ok := taggedDescriptor("Respuesta de una sola línea, sin formato extra."); ok {
+		t.Error("an answer without the tag is no descriptor")
+	}
+}
+
+func TestGenerateRetries(t *testing.T) {
+	stateDir = t.TempDir()
+	t.Setenv("ASMETA_LANG", "")
+	defer func(f func(string) string) { askModel = f }(askModel)
+	w := &workspace{id: "w1", branch: "b"}
+
+	var prompts []string
+	answers := []string{"Hablo de las reglas, sin etiqueta", "<descriptor>Arreglar checkout</descriptor>"}
+	askModel = func(p string) string {
+		prompts = append(prompts, p)
+		return answers[len(prompts)-1]
+	}
+	if !generate(w, aiPlan{key: "k1", limit: 34, prompt: "P"}) || readText(aiCache("k1")) != "Arreglar checkout" {
+		t.Errorf("an untagged answer is asked again: %q", readText(aiCache("k1")))
+	}
+
+	prompts = nil
+	answers = []string{"<descriptor>Solicitudes LinkedIn con respuesta completa</descriptor>", "<descriptor>Respuesta completa en LinkedIn</descriptor>"}
+	if !generate(w, aiPlan{key: "k2", limit: 34, prompt: "P"}) || readText(aiCache("k2")) != "Respuesta completa en LinkedIn" {
+		t.Errorf("a long answer is asked again: %q", readText(aiCache("k2")))
+	}
+	if len(prompts) != 2 || !strings.Contains(prompts[1], "tiene 43 caracteres y el máximo es 34") {
+		t.Errorf("the second try says how long the first was: %q", prompts)
+	}
+
+	prompts = nil
+	answers = []string{"nada", "tampoco"}
+	if generate(w, aiPlan{key: "k3", limit: 34, prompt: "P"}) || aiCached("k3") || !aiCooling("k3") {
+		t.Error("two untagged answers are a failure, never a cached descriptor")
+	}
 }
 
 func TestPlanAIKeyAndPrompt(t *testing.T) {
 	t.Setenv("ASMETA_LANG", "")
+	defer func(f func() []string) { claudeHomes = f }(claudeHomes)
+	claudeHomes = func() []string { return nil }
 	w := &workspace{id: "w1", path: "/x", linked: true, branch: "feat/x", prNum: "12",
 		prTitle: "feat: añadir X", prBody: "body", jiraSummary: "Summary", jiraDesc: "Desc", ticket: "ESHOP-1"}
 	p := planAI(w)
-	if p.key != "9b2c6f4bdaff927d09750705774e6744db0e5fc632f93392300b32a81ae3acd8" {
-		t.Errorf("key = %s", p.key)
-	}
 	if p.limit != 36 {
 		t.Errorf("limit = %d, want 40 minus len(\"#12 \")", p.limit)
 	}
-	if !strings.HasPrefix(p.prompt, "Escribe un descriptor muy corto, en español,") ||
+	if !strings.HasPrefix(p.prompt, "Resume en un descriptor muy corto, en español,") ||
 		!strings.Contains(p.prompt, "como máximo 36 caracteres") ||
-		!strings.HasSuffix(p.prompt, "\nTicket ESHOP-1: Summary\nDescripción del ticket: Desc") {
+		!strings.HasSuffix(p.prompt, "<datos>\nTítulo del PR: feat: añadir X\nTicket ESHOP-1: Summary\nBranch: feat/x\n</datos>") {
 		t.Errorf("prompt = %q", p.prompt)
+	}
+	// Bodies are not part of the descriptor: editing them rewords nothing.
+	edited := *w
+	edited.prBody, edited.jiraDesc = "another body", "another description"
+	if q := planAI(&edited); q.key != p.key || q.prompt != p.prompt {
+		t.Error("a PR body or ticket description edit must not change the key or the prompt")
+	}
+	retitled := *w
+	retitled.prTitle = "feat: añadir Y"
+	if planAI(&retitled).key == p.key {
+		t.Error("a new PR title must change the key")
 	}
 
 	t.Setenv("ASMETA_LANG", "English")
 	q := planAI(w)
-	if q.key == p.key || !strings.HasPrefix(q.prompt, "Write a very short descriptor, in English,") {
+	if q.key == p.key || !strings.HasPrefix(q.prompt, "Sum up in a very short descriptor, in English,") {
 		t.Errorf("another language must change the key and the prompt: %s %q", q.key, q.prompt)
 	}
+	t.Setenv("ASMETA_LANG", "")
 
 	if planAI(&workspace{path: "/x", linked: false, prNum: "1"}).key != "" {
 		t.Error("a main checkout gets no descriptor")
+	}
+
+	// No PR and a ticket asmeta cannot read: the aswork task's title.
+	task := planAI(&workspace{path: "/x", linked: true, branch: "syf2-1", ticket: "SYF2-1", taskTitle: "Show the full reply"})
+	if !strings.Contains(task.prompt, "\nTarea: Show the full reply\nBranch: syf2-1\n</datos>") {
+		t.Errorf("prompt = %q", task.prompt)
+	}
+}
+
+func TestPlanAIIntent(t *testing.T) {
+	t.Setenv("ASMETA_LANG", "")
+	defer func(f func() []string) { claudeHomes = f }(claudeHomes)
+	home, checkout := t.TempDir(), t.TempDir()
+	claudeHomes = func() []string { return []string{home} }
+	dir := filepath.Join(home, "projects", sessionDirName(checkout))
+	os.MkdirAll(dir, 0o755)
+	later := `{"type":"user","timestamp":"2026-11-25T10:00:00Z","message":{"content":"otra cosa, después"}}` + "\n"
+	first := `{"type":"mode"}` + "\n" +
+		`{"type":"user","isMeta":true,"timestamp":"2026-11-24T09:00:00Z","message":{"content":"meta"}}` + "\n" +
+		`{"type":"user","timestamp":"2026-11-24T09:00:01Z","message":{"content":"<command-name>/clear</command-name>"}}` + "\n" +
+		`{"type":"user","timestamp":"2026-11-24T09:00:02Z","message":{"content":[{"type":"tool_result","content":"x"}]}}` + "\n" +
+		`{"type":"user","timestamp":"2026-11-24T09:00:03Z","message":{"content":[{"type":"text","text":"quiero cerrar la excepción\nde auto mode en cd"}]}}` + "\n"
+	os.WriteFile(filepath.Join(dir, "b.jsonl"), []byte(later), 0o644)
+	os.WriteFile(filepath.Join(dir, "a.jsonl"), []byte(first), 0o644)
+
+	w := &workspace{id: "w1", path: checkout, linked: true, branch: "claude-automode"}
+	p := planAI(w)
+	if p.key == "" || !strings.Contains(p.prompt, "\nPedido inicial: quiero cerrar la excepción de auto mode en cd\nBranch: claude-automode\n</datos>") {
+		t.Errorf("the first prompt of the earliest session: %q", p.prompt)
+	}
+
+	os.WriteFile(filepath.Join(checkout, "HANDOFF.md"), []byte("\n# HANDOFF: new skill `syft-spec-review`\n\nRepo: x\n"), 0o644)
+	h := planAI(w)
+	if h.key == p.key || !strings.Contains(h.prompt, "\nPedido inicial: new skill `syft-spec-review`\n") {
+		t.Errorf("a handoff heading comes before the session: %q", h.prompt)
+	}
+
+	// A title always wins: the request is not even read into the prompt.
+	titled := *w
+	titled.ticket, titled.jiraSummary = "ESHOP-1", "Summary"
+	if q := planAI(&titled); strings.Contains(q.prompt, "Pedido inicial") {
+		t.Errorf("a ticket summary leaves the request out: %q", q.prompt)
 	}
 }
 

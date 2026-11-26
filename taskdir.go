@@ -153,6 +153,20 @@ func issueTicketForRef(ref string) string {
 	return ""
 }
 
+// taskTitleForRef is the title of the task a harness ref points at, "" when
+// the ref has no task directory. For a ticket asmeta cannot read (Linear) it
+// is the only title a space without a PR has.
+func taskTitleForRef(ref string) string {
+	key, _, _ := strings.Cut(ref, "#")
+	if key == "" {
+		return ""
+	}
+	if t := taskInfoFor(filepath.Join(workDir, key)); t != nil {
+		return t.title
+	}
+	return ""
+}
+
 // unquoteYAML undoes the double-quoted scalar aswork-status writes
 // (title: "..." with \" and \\ escaped); an unquoted value passes through.
 func unquoteYAML(s string) string {

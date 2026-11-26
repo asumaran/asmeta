@@ -12,9 +12,10 @@ workspace (`$title`, `$desc`, `$ticket`, `$parent`, `$pr`, `$pr_state`,
 PR. It is part of the `as` family of herdr plugins (asgoto, asgotopr,
 asgotoissues...); asgoto searches its `$desc` token.
 
-It started as a bash script in the user's dotfiles; the Go port keeps its
-behavior byte for byte (the same tokens, the same state files, the same AI
-cache keys and prompt), checked by running both against the same session.
+It started as a bash script in the user's dotfiles; the Go port kept its
+behavior byte for byte (the same tokens, the same state files), checked by
+running both against the same session. The AI descriptor has since moved on
+from the bash prompt and keys (`promptVersion` 2).
 
 ## Stack & layout
 
@@ -44,9 +45,13 @@ cache keys and prompt), checked by running both against the same session.
   `ghAuthToken` (`gh auth token -u`, 10s timeout, injectable package var).
 - `jira.go`: one ticket's parent, summary and description, cached as plain
   text in `parents/`, `summaries/`, `descriptions/` of the state dir.
-- `ai.go`: the descriptor: `planAI` (cache key and prompt), `cleanDescriptor`,
-  `generate` (`claude -p`, Haiku), the queue (`queue/`) and its lock
-  (`ai.flock`, a kernel `flock`, released however the process ends).
+- `ai.go`: the descriptor: `planAI` (cache key and prompt), `taggedDescriptor`
+  and `cleanDescriptor` (the answer), `generate` (`claude -p`, Haiku, one
+  retry), the queue (`queue/`) and its lock (`ai.flock`, a kernel `flock`,
+  released however the process ends).
+- `session.go`: what a space with no title is about (`workIntent`): the
+  heading of the checkout's `HANDOFF.md`, else the first prompt of its
+  earliest Claude Code session (`projects/` of every `~/.claude*`).
 - `prlabel.go`: `prDisplay`, the `$pr` label and `$pr_state` of a cached PR
   (number, state or review decision, then conflicts and checks while open).
 - `ticketkey.go`: the ticket a branch names (`branchTicket`, `projectKeys`).
@@ -80,10 +85,21 @@ without a migration, or every descriptor is generated again.
 
 ## Behaviour that is not obvious
 
-- The AI cache key is sha256 of `promptVersion`, the model and the basis (the
-  PR, else the ticket, else the branch with commits). Bump `promptVersion`
-  when the prompt changes. With `ASMETA_LANG` unset the prompt and the key are
-  the bash plugin's; another language adds `lang=` to the basis.
+- The AI cache key is sha256 of `promptVersion`, the model and the basis.
+  Bump `promptVersion` when the prompt changes. A language other than Spanish
+  (`ASMETA_LANG`) adds `lang=` to the basis.
+- The descriptor sums up titles, in this order of what exists: the PR title,
+  the ticket summary and the aswork task title (`taskTitleForRef`, the only
+  title of a Linear ticket without a PR). Only with none of them: the
+  `HANDOFF.md` heading or the first session prompt (`session.go`), and
+  failing that the commits. PR bodies never enter the prompt or the key: a
+  long body made Haiku comment on the rules instead of answering, and every
+  body edit reworded the row. The ticket description is used only when there
+  is no title.
+- The model must answer `<descriptor>text</descriptor>`; the last tag is the
+  answer and an answer without the tag is a failure, never a cached
+  descriptor. An untagged or too-long answer gets one more try (the second
+  told its length); then the text is cut at a word boundary.
 - PR state comes normalized from `prs.json`: `draft` only while open. An
   open PR also carries `review` (approved, changes_requested,
   review_required), `checks` (success, failure, pending) and `mergeable`

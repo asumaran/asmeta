@@ -36,11 +36,12 @@
 // summary, description; stacks from ~/.claude/asdev.local.md, the same file
 // asdev / asgotoissues read) and `claude -p` (Haiku) for the descriptor.
 //
-// The descriptor is stable: with a PR it depends on the PR and the ticket
-// only, without one it is generated once from the ticket (or from the commits
-// when there is no ticket either) and frozen until a PR appears. Until it
+// The descriptor is stable: it sums up the titles of the PR, the ticket and
+// the aswork task, and changes only when one of them does. A space with no
+// title is summed up from its HANDOFF.md heading or the first prompt of its
+// first Claude Code session (session.go), else from its commits. Until it
 // exists, or when generation fails, it falls back to the PR title, the Jira
-// summary, then the label. Every hook publishes the fallback first; AI
+// summary, the task title, then the label. Every hook publishes the fallback first; AI
 // generation goes through a queue drained by a single process at a time, so
 // concurrent events never pile up model calls or herdr plugin command slots.
 //
@@ -214,6 +215,7 @@ type workspace struct {
 	prBase          string
 	jiraSummary     string
 	jiraDesc        string
+	taskTitle       string // the aswork task's title, by the harness ref
 	harness         string
 	harnessRef      string
 	// gone: herdr still names a linked worktree whose checkout was deleted
@@ -232,6 +234,7 @@ func collect(list wsList, id string) *workspace {
 	if w.path == "" {
 		return w
 	}
+	w.taskTitle = taskTitleForRef(w.harnessRef)
 	resolvePR(w, loadSharedPRs())
 	if w.ticket != "" {
 		parent, kind := jiraParent(w.ticket)
@@ -420,7 +423,7 @@ func tokensFor(w *workspace, p aiPlan) map[string]string {
 		if p.key != "" && aiCached(p.key) {
 			cached = readText(aiCache(p.key))
 		}
-		for _, c := range []string{cached, describe(w.prTitle), describe(w.jiraSummary)} {
+		for _, c := range []string{cached, describe(w.prTitle), describe(w.jiraSummary), w.taskTitle} {
 			if strings.ReplaceAll(c, " ", "") != "" {
 				desc = c
 				break
